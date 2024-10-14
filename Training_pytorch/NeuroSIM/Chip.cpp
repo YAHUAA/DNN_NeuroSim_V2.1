@@ -362,12 +362,12 @@ vector<vector<double> > ChipFloorPlan(bool findNumTile, bool findUtilization, bo
 	speedUpEachLayer.clear();
 }
 
-
-void ChipInitialize(InputParameter& inputParameter, Technology& tech, MemCell& cell, const vector<vector<double> > &netStructure, const vector<int > &markNM, const vector<vector<double> > &numTileEachLayer,
+//添加第2种memcell
+void ChipInitialize(InputParameter& inputParameter, Technology& tech, MemCell& cell_1,MemCell& cell_2, const vector<vector<double> > &netStructure, const vector<int > &markNM, const vector<vector<double> > &numTileEachLayer,
 					double numPENM, double desiredNumTileNM, double desiredPESizeNM, double desiredNumTileCM, double desiredTileSizeCM, double desiredPESizeCM, int numTileRow, int numTileCol, int *numArrayWriteParallel) { 
 
 	/*** Initialize Tile ***/
-	TileInitialize(inputParameter, tech, cell, numPENM, desiredPESizeNM, ceil((double)(desiredTileSizeCM)/(double)(desiredPESizeCM)), desiredPESizeCM);
+	TileInitialize(inputParameter, tech, cell_1, numPENM, desiredPESizeNM, ceil((double)(desiredTileSizeCM)/(double)(desiredPESizeCM)), desiredPESizeCM);
 	
 	// find max layer and define the global buffer: enough to hold the max layer inputs
 	double maxLayerInput = 0; 

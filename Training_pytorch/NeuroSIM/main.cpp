@@ -212,7 +212,7 @@ int main(int argc, char * argv[]) {
 		numComputation *= param->batchSize * param->numIteration;  // count for one epoch
 	}
 		
-	ChipInitialize(inputParameter, tech, cell, netStructure, markNM, numTileEachLayer,
+	ChipInitialize(inputParameter, tech, cell, cell_2, netStructure, markNM, numTileEachLayer,
 					numPENM, desiredNumTileNM, desiredPESizeNM, desiredNumTileCM, desiredTileSizeCM, desiredPESizeCM, numTileRow, numTileCol, &numArrayWriteParallel);
 	
 	double chipHeight, chipWidth, chipArea, chipAreaIC, chipAreaADC, chipAreaAccum, chipAreaOther, chipAreaWG, chipAreaArray;

@@ -46,6 +46,7 @@
 
 using namespace std;
 
+//subarray的构造函数
 SubArray::SubArray(InputParameter& _inputParameter, Technology& _tech, MemCell& _cell):
 						inputParameter(_inputParameter), tech(_tech), cell(_cell),
 						wlDecoder(_inputParameter, _tech, _cell),

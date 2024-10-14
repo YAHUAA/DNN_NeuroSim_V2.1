@@ -88,7 +88,7 @@ void TileInitialize(InputParameter& inputParameter, Technology& tech, MemCell& c
 	hTreeCM = new HTree(inputParameter, tech, cell);
 	accumulationCM = new AdderTree(inputParameter, tech, cell);
 	
-	if (!param->chipActivation) {
+	if (!param->chipActivation) {   //是否在片上进行激活
 		if (param->reLu) {
 			reLuNM = new BitShifter(inputParameter, tech, cell);
 			reLuCM = new BitShifter(inputParameter, tech, cell);
