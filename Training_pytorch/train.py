@@ -93,6 +93,9 @@ logger = misc.logger.info
 # logger
 misc.ensure_dir(args.logdir)
 logger("=================FLAGS==================")
+# #DEBUG
+# print("cwd:", os.getcwd())
+# raise Exception("Stop for debug")
 for k, v in args.__dict__.items():
     logger('{}: {}'.format(k, v))
 logger("========================================")

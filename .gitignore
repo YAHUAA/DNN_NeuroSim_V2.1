@@ -1,0 +1,6 @@
+*.o
+*.csv
+*/__pycache__/
+*.pyc
+*.pth
+Training_pytorch/log/

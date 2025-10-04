@@ -41,15 +41,15 @@ parser.add_argument('--target', default=0)
 current_time = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
 
 args = parser.parse_args()
-args.wl_weight = 8
-args.wl_grad = 8
+args.wl_weight = 5
+args.wl_grad = 5
 args.wl_error = 8
 args.batch_size = 1024
 args.inference = 1            # set to run inference simulation
 # Hardware Properties
 args.subArray = 128           # size of subArray (e.g. 128*128)
-args.ADCprecision = 6         # ADC precision (e.g. 5-bit)
-args.cellBit = 4              # cell precision (e.g. 4-bit/cell)
+args.ADCprecision = 5         # ADC precision (e.g. 5-bit)
+args.cellBit = 5              # cell precision (e.g. 4-bit/cell)
 args.onoffratio = 10          # device on/off ratio (e.g. Gmax/Gmin = 3)
 # if do not run the device retention / conductance variation effects, set args.vari=0, args.v=0
 args.vari = 0                 # conductance variation (e.g. 0.1 standard deviation to generate random variation)
@@ -66,6 +66,9 @@ logger = misc.logger.info
 
 misc.ensure_dir(args.logdir)
 logger("=================FLAGS==================")
+#DEBUG
+# print("cwd:", os.getcwd())
+# raise Exception("Stop for debug")
 for k, v in args.__dict__.items():
 	logger('{}: {}'.format(k, v))
 logger("========================================")
@@ -76,7 +79,9 @@ torch.manual_seed(args.seed)
 if args.cuda:
 	torch.cuda.manual_seed(args.seed)
 
-model_path = './log/default/batch_size=200/decreasing_lr=200,250/grad_scale=8/seed=117/type=cifar10/wl_activate=8/wl_error=8/wl_grad=8/wl_weight=8/latest.pth'
+# model_path = './log/default/ADCprecision=5/batch_size=200/decreasing_lr=200,250/grad_scale=8/seed=117/type=cifar10/wl_activate=8/wl_error=8/wl_grad=5/wl_weight=5/latest.pth'
+# model_path = './log/default/ADCprecision=6/batch_size=1024/cellBit=4/decreasing_lr=200,250/detect=1/grad_scale=8/inference=1/onoffratio=10/seed=117/subArray=128/t=0/target=0.5/type=cifar10/v=0/vari=0/wl_activate=8/wl_error=8/wl_grad=8/wl_weight=8/test_log2025_09_25_20_57_07'
+model_path = '/home/zjh/Project/MY_Project/DNN_NeuroSim_V2.1/Training_pytorch/log/default/ADCprecision=5/batch_size=200/c2cVari=0.003/cellBit=5/d2dVari=0.0/decreasing_lr=200,250/detect=0/grad_scale=1/inference=0/max_level=32/nonlinearityLTD=1.46/nonlinearityLTP=1.75/onoffratio=10/seed=117/subArray=128/t=0/target=0/type=cifar10/v=0/vari=0/wl_activate=8/wl_error=8/wl_grad=5/wl_weight=5/latest.pth'
 
 # data loader and model
 assert args.type in ['cifar10', 'cifar100'], args.type
