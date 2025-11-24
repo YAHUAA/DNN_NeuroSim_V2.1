@@ -1,3 +1,4 @@
+#include <vector>
 /*******************************************************************************
 * Copyright (c) 2015-2017
 * School of Electrical, Computer and Energy Engineering, Arizona State University
@@ -48,4 +49,5 @@ InputParameter inputParameter;
 Technology tech;
 MemCell cell;
 MemCell cell_2;
+
 

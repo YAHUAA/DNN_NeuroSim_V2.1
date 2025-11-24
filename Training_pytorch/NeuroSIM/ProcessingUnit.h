@@ -42,9 +42,15 @@
 #include "Technology.h"
 #include "MemCell.h"
 #include "SubArray.h"
+
+#include "my_components/Acim_SubArray.h"
+#include "my_components/Dcim_SubArray.h"
  
 /*** Functions ***/
 void ProcessingUnitInitialize(SubArray *& subArray, InputParameter& inputParameter, Technology& tech, MemCell& cell, int _numSubArrayRowNM, int _numSubArrayColNM, int _numSubArrayRowCM, int _numSubArrayColCM);
+void AProcessingUnitInitialize(Acim_SubArray *& subArray, InputParameter& inputParameter, Technology& tech, MemCell& cell, int _numSubArrayRow, int _numSubArrayCol);
+void DProcessingUnitInitialize(Dcim_SubArray *& subArray, InputParameter& inputParameter, Technology& tech, MemCell& cell, int _numSubArrayRow, int _numSubArrayCol);
+
 vector<double> ProcessingUnitCalculateArea(SubArray *subArray, int numSubArrayRow, int numSubArrayCol, bool NMpe, double *height, double *width, double *bufferArea);
 double ProcessingUnitCalculatePerformance(SubArray *subArray, Technology& tech, MemCell& cell, int layerNumber, bool NMpe, 
 										const vector<vector<double> > &newMemory, const vector<vector<double> > &oldMemory, const vector<vector<double> > &inputVector, 
@@ -64,4 +70,24 @@ vector<double> GetRowResistance(const vector<double> &input, const vector<vector
 void GetWriteUpdateEstimation(SubArray *subArray, Technology& tech, MemCell& cell, const vector<vector<double> > &newMemory, const vector<vector<double> > &oldMemory, double *activityColWrite, double *activityRowWrite,
 								int *numWritePulseAVG, int *totalNumWritePulse, double *writeDynamicEnergyArray);
 
+double AnalogProcessingUnitCalculatePerformance(Acim_SubArray *subArray, Technology& tech, MemCell& cell, int layerNumber, int numInVector,
+											int numCell,
+											double *readLatency, double *readDynamicEnergy, double *leakage, 
+											double *readLatencyAG, double *readDynamicEnergyAG, double *writeLatencyWU, double *writeDynamicEnergyWU,
+											double *bufferLatency, double *bufferDynamicEnergy, double *icLatency, double *icDynamicEnergy,
+											double *coreLatencyADC, double *coreLatencyAccum, double *coreLatencyOther, double *coreEnergyADC, 
+											double *coreEnergyAccum, double *coreEnergyOther, double *readLatencyPeakFW, double *readDynamicEnergyPeakFW,
+											double *readLatencyPeakAG, double *readDynamicEnergyPeakAG, double *writeLatencyPeakWU, double *writeDynamicEnergyPeakWU);
+
+double DigitalProcessingUnitCalculatePerformance(Dcim_SubArray *subArray, Technology& tech, MemCell& cell, int layerNumber, int numInVector,
+											int numCell,
+											double *readLatency, double *readDynamicEnergy, double *leakage, 
+											double *readLatencyAG, double *readDynamicEnergyAG, double *writeLatencyWU, double *writeDynamicEnergyWU,
+											double *bufferLatency, double *bufferDynamicEnergy, double *icLatency, double *icDynamicEnergy,
+											double *coreLatencyADC, double *coreLatencyAccum, double *coreLatencyOther, double *coreEnergyADC, 
+											double *coreEnergyAccum, double *coreEnergyOther, double *readLatencyPeakFW, double *readDynamicEnergyPeakFW,
+											double *readLatencyPeakAG, double *readDynamicEnergyPeakAG, double *writeLatencyPeakWU, double *writeDynamicEnergyPeakWU);
+
+vector<double> AnalogProcessingUnitCalculateArea(Acim_SubArray *subArray, int numSubArrayRow, int numSubArrayCol, double *height, double *width, double *bufferArea);
+vector<double> DigitalProcessingUnitCalculateArea(Dcim_SubArray *subArray, int numSubArrayRow, int numSubArrayCol, double *height, double *width, double *bufferArea);
 #endif /* PROCESSINGUNIT_H_ */

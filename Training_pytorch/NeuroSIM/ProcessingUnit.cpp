@@ -53,6 +53,10 @@
 #include "Bus.h"
 #include "DFF.h"
 
+#include "Chip.h"
+#include "./my_components/Acim_SubArray.h"
+#include "./my_components/Dcim_SubArray.h"
+
 using namespace std;
 
 extern Param *param;
@@ -68,6 +72,296 @@ Bus *busInputCM;
 Bus *busOutputCM;
 DFF *bufferInputCM;
 DFF *bufferOutputCM;
+
+AdderTree *adderTree_1;
+Bus *busInput_1;
+Bus *busOutput_1;
+DFF *bufferInput_1;
+DFF *bufferOutput_1;
+
+AdderTree *adderTree_2;
+Bus *busInput_2;
+Bus *busOutput_2;
+DFF *bufferInput_2;
+DFF *bufferOutput_2;
+
+// TODO
+void DProcessingUnitInitialize(Dcim_SubArray *& subArray, InputParameter& inputParameter, Technology& tech, MemCell& cell, int _numSubArrayRow, int _numSubArrayCol) {
+	/*** circuit level parameters ***/
+	switch(param->memcelltype_2) {
+		case 3:     cell.memCellType = Type::FeFET; break;
+		case 2:	    cell.memCellType = Type::RRAM; break;
+		case 1:	    cell.memCellType = Type::SRAM; break;
+		case -1:	break;
+		default:	exit(-1);
+	}
+	switch(param->accesstype) {
+		case 4:	    cell.accessType = none_access;  break;
+		case 3:	    cell.accessType = diode_access; break;
+		case 2:	    cell.accessType = BJT_access;   break;
+		case 1:	    cell.accessType = CMOS_access;  break;
+		case -1:	break;
+		default:	exit(-1);
+	}				
+					
+	switch(param->transistortype) {
+		case 3:	    inputParameter.transistorType = TFET;          break;
+		case 2:	    inputParameter.transistorType = FET_2D;        break;
+		case 1:	    inputParameter.transistorType = conventional;  break;
+		case -1:	break;
+		default:	exit(-1);
+	}
+	
+	switch(param->deviceroadmap) {
+		case 2:	    inputParameter.deviceRoadmap = LSTP;  break;
+		case 1:	    inputParameter.deviceRoadmap = HP;    break;
+		case -1:	break;
+		default:	exit(-1);
+	}
+
+	subArray = new Dcim_SubArray(inputParameter, tech, cell);
+	adderTree_2 = new AdderTree(inputParameter, tech, cell);
+	busInput_2 = new Bus(inputParameter, tech, cell);
+	busOutput_2 = new Bus(inputParameter, tech, cell);
+	bufferInput_2 = new DFF(inputParameter, tech, cell);
+	bufferOutput_2 = new DFF(inputParameter, tech, cell);
+
+	
+	cell.resistanceOn = param->resistanceOn;	                                // Ron resistance at Vr in the reported measurement data (need to recalculate below if considering the nonlinearity)
+	cell.resistanceOff = param->resistanceOff;	                                // Roff resistance at Vr in the reported measurement dat (need to recalculate below if considering the nonlinearity)
+	cell.resistanceAvg = (cell.resistanceOn + cell.resistanceOff)/2;            // Average resistance (for energy estimation)
+	cell.readVoltage = param->readVoltage;	                                    // On-chip read voltage for memory cell
+	cell.readPulseWidth = param->readPulseWidth;
+	cell.accessVoltage = param->accessVoltage;                                       // Gate voltage for the transistor in 1T1R
+	cell.resistanceAccess = param->resistanceAccess;
+	cell.featureSize = param->featuresize; 
+	cell.maxNumLevelLTP = param->maxNumLevelLTP;	                            // Maximum number of conductance states during LTP or weight increase
+	cell.maxNumLevelLTD = param->maxNumLevelLTD;	                            // Maximum number of conductance states during LTD or weight decrease
+	double writeVoltageLTP = param->writeVoltage;
+	double writeVoltageLTD = param->writeVoltage;
+	cell.writeVoltage = sqrt(writeVoltageLTP * writeVoltageLTP + writeVoltageLTD * writeVoltageLTD);    // Use an average value of write voltage for NeuroSim
+	double writePulseWidthLTP = param->writePulseWidth;
+	double writePulseWidthLTD = param->writePulseWidth;
+	cell.writePulseWidth = (writePulseWidthLTP + writePulseWidthLTD) / 2;
+	cell.nonlinearIV = param->nonlinearIV; 										// This option is to consider I-V nonlinearity in cross-point array or not
+	cell.nonlinearity = param->nonlinearity; 									// This is the nonlinearity for the current ratio at Vw and Vw/2
+
+	if (cell.memCellType == Type::SRAM) {   // SRAM
+		cell.heightInFeatureSize = param->heightInFeatureSizeSRAM;                   // Cell height in feature size
+		cell.widthInFeatureSize = param->widthInFeatureSizeSRAM;                     // Cell width in feature size
+		cell.widthSRAMCellNMOS = param->widthSRAMCellNMOS;
+		cell.widthSRAMCellPMOS = param->widthSRAMCellPMOS;
+		cell.widthAccessCMOS = param->widthAccessCMOS;
+		cell.minSenseVoltage = param->minSenseVoltage;
+	} else {
+		printf("Wrong cell type for D_PE: %d\n", param->memcelltype_2);
+		exit(-1);
+	}
+
+	subArray->trainingEstimation = param->trainingEstimation;
+	subArray->XNORparallelMode = param->XNORparallelMode;               
+	subArray->XNORsequentialMode = param->XNORsequentialMode;             
+	subArray->BNNparallelMode = param->BNNparallelMode;                
+	subArray->BNNsequentialMode = param->BNNsequentialMode;              
+	subArray->conventionalParallel = param->conventionalParallel;                  
+	subArray->conventionalSequential = param->conventionalSequential;   
+	subArray->parallelBP = param->parallelBP;	
+	subArray->numRow = param->numRowSubArray_2;
+	subArray->numCol = param->numColSubArray_2;
+	subArray->levelOutput = param->levelOutput;
+	subArray->levelOutputBP = param->levelOutputAG;
+	//subArray->numColMuxed = param->numColMuxed;               // How many columns share 1 read circuit (for neuro mode with analog RRAM) or 1 S/A (for memory mode or neuro mode with digital RRAM)
+	subArray->numColMuxed = 1;
+	subArray->numRowMuxedBP = param->numRowMuxedAG;
+    subArray->clkFreq = param->clkFreq;                       // Clock frequency
+	subArray->relaxArrayCellHeight = param->relaxArrayCellHeight;
+	subArray->relaxArrayCellWidth = param->relaxArrayCellWidth;
+	subArray->numReadPulse = param->numBitInput;
+	subArray->avgWeightBit = param->cellBit_2;
+	subArray->numCellPerSynapse = param->numColPerSynapse;
+	subArray->numReadPulseBP = 8;
+	subArray->activityBPColRead = 0.5;
+	//subArray->SARADC = param->SARADC;
+	subArray->SARADC = false;
+	subArray->currentMode = param->currentMode;
+	subArray->spikingMode = NONSPIKING;
+	
+	int numRow = param->numRowSubArray_2;
+	int numCol = param->numColSubArray_2;
+	
+	// if (subArray->numColMuxed > numCol) {                      // Set the upperbound of numColMuxed
+	// 	subArray->numColMuxed = numCol;
+	// }
+
+	subArray->numReadCellPerOperationFPGA = numCol;	           // Not relevant for IMEC
+	subArray->numWriteCellPerOperationFPGA = numCol;	       // Not relevant for IMEC
+	subArray->numReadCellPerOperationMemory = numCol;          // Define # of SRAM read cells in memory mode because SRAM does not have S/A sharing (not relevant for IMEC)
+	subArray->numWriteCellPerOperationMemory = numCol/8;       // # of write cells per operation in SRAM memory or the memory mode of multifunctional memory (not relevant for IMEC)
+	subArray->numReadCellPerOperationNeuro = numCol;           // # of SRAM read cells in neuromorphic mode
+	subArray->numWriteCellPerOperationNeuro = numCol;	       // For SRAM or analog RRAM in neuro mode
+    subArray->maxNumWritePulse = MAX(cell.maxNumLevelLTP, cell.maxNumLevelLTD);
+
+	int numSubArrayRow = _numSubArrayRow;
+	int numSubArrayCol = _numSubArrayCol;
+	
+	/*** initialize modules ***/
+	subArray->Initialize(numRow, numCol, param->unitLengthWireResistance);        // initialize subArray
+	//subArray->CalculateArea();
+	
+	if (param->parallelRead) {
+		adderTree_2->Initialize(numSubArrayRow, log2((double)param->levelOutput)+param->numBitInput+param->numColPerSynapse+1, ceil((double)numSubArrayCol*(double)numCol/(double)param->numColMuxed));
+	} else {
+		adderTree_2->Initialize(numSubArrayRow, (log2((double)numRow)+param->cellBit-1)+param->numBitInput+param->numColPerSynapse+1, ceil((double)numSubArrayCol*(double)numCol/(double)param->numColMuxed));
+	}
+	
+	bufferInput_2->Initialize(param->numBitInput*numRow, param->clkFreq);
+	if (param->parallelRead) {
+		bufferOutput_2->Initialize((numCol/param->numColMuxed)*(log2((double)param->levelOutput)+param->numBitInput+param->numColPerSynapse+adderTree_2->numStage), param->clkFreq);
+	} else {
+		bufferOutput_2->Initialize((numCol/param->numColMuxed)*((log2((double)numRow)+param->cellBit-1)+param->numBitInput+param->numColPerSynapse+adderTree_2->numStage), param->clkFreq);
+	}
+	
+	busInput_2->Initialize(HORIZONTAL, numSubArrayRow, numSubArrayCol, 0, numRow, subArray->height, subArray->width);
+	busOutput_2->Initialize(VERTICAL, numSubArrayRow, numSubArrayCol, 0, numCol, subArray->height, subArray->width);
+}
+
+void AProcessingUnitInitialize(Acim_SubArray *& subArray, InputParameter& inputParameter, Technology& tech, MemCell& cell, int _numSubArrayRow, int _numSubArrayCol) {
+	/*** circuit level parameters ***/
+	switch(param->memcelltype) {
+		case 3:     cell.memCellType = Type::FeFET; break;
+		case 2:	    cell.memCellType = Type::RRAM; break;
+		case 1:	    cell.memCellType = Type::SRAM; break;
+		case -1:	break;
+		default:	exit(-1);
+	}
+	switch(param->accesstype) {
+		case 4:	    cell.accessType = none_access;  break;
+		case 3:	    cell.accessType = diode_access; break;
+		case 2:	    cell.accessType = BJT_access;   break;
+		case 1:	    cell.accessType = CMOS_access;  break;
+		case -1:	break;
+		default:	exit(-1);
+	}				
+					
+	switch(param->transistortype) {
+		case 3:	    inputParameter.transistorType = TFET;          break;
+		case 2:	    inputParameter.transistorType = FET_2D;        break;
+		case 1:	    inputParameter.transistorType = conventional;  break;
+		case -1:	break;
+		default:	exit(-1);
+	}
+	
+	switch(param->deviceroadmap) {
+		case 2:	    inputParameter.deviceRoadmap = LSTP;  break;
+		case 1:	    inputParameter.deviceRoadmap = HP;    break;
+		case -1:	break;
+		default:	exit(-1);
+	}
+
+	subArray = new Acim_SubArray(inputParameter, tech, cell);
+	adderTree_1 = new AdderTree(inputParameter, tech, cell);
+	busInput_1 = new Bus(inputParameter, tech, cell);
+	busOutput_1 = new Bus(inputParameter, tech, cell);
+	bufferInput_1 = new DFF(inputParameter, tech, cell);
+	bufferOutput_1 = new DFF(inputParameter, tech, cell);
+
+	
+	cell.resistanceOn = param->resistanceOn;	                                // Ron resistance at Vr in the reported measurement data (need to recalculate below if considering the nonlinearity)
+	cell.resistanceOff = param->resistanceOff;	                                // Roff resistance at Vr in the reported measurement dat (need to recalculate below if considering the nonlinearity)
+	cell.resistanceAvg = (cell.resistanceOn + cell.resistanceOff)/2;            // Average resistance (for energy estimation)
+	cell.readVoltage = param->readVoltage;	                                    // On-chip read voltage for memory cell
+	cell.readPulseWidth = param->readPulseWidth;
+	cell.accessVoltage = param->accessVoltage;                                       // Gate voltage for the transistor in 1T1R
+	cell.resistanceAccess = param->resistanceAccess;
+	cell.featureSize = param->featuresize; 
+	cell.maxNumLevelLTP = param->maxNumLevelLTP;	                            // Maximum number of conductance states during LTP or weight increase
+	cell.maxNumLevelLTD = param->maxNumLevelLTD;	                            // Maximum number of conductance states during LTD or weight decrease
+	double writeVoltageLTP = param->writeVoltage;
+	double writeVoltageLTD = param->writeVoltage;
+	cell.writeVoltage = sqrt(writeVoltageLTP * writeVoltageLTP + writeVoltageLTD * writeVoltageLTD);    // Use an average value of write voltage for NeuroSim
+	double writePulseWidthLTP = param->writePulseWidth;
+	double writePulseWidthLTD = param->writePulseWidth;
+	cell.writePulseWidth = (writePulseWidthLTP + writePulseWidthLTD) / 2;
+	cell.nonlinearIV = param->nonlinearIV; 										// This option is to consider I-V nonlinearity in cross-point array or not
+	cell.nonlinearity = param->nonlinearity; 									// This is the nonlinearity for the current ratio at Vw and Vw/2
+
+	if (cell.memCellType == Type::SRAM) {   // SRAM
+		cell.heightInFeatureSize = param->heightInFeatureSizeSRAM;                   // Cell height in feature size
+		cell.widthInFeatureSize = param->widthInFeatureSizeSRAM;                     // Cell width in feature size
+		cell.widthSRAMCellNMOS = param->widthSRAMCellNMOS;
+		cell.widthSRAMCellPMOS = param->widthSRAMCellPMOS;
+		cell.widthAccessCMOS = param->widthAccessCMOS;
+		cell.minSenseVoltage = param->minSenseVoltage;
+	} else {
+		cell.heightInFeatureSize = (cell.accessType==CMOS_access)? param->heightInFeatureSize1T1R : param->heightInFeatureSizeCrossbar;         // Cell height in feature size
+		cell.widthInFeatureSize = (cell.accessType==CMOS_access)? param->widthInFeatureSize1T1R : param->widthInFeatureSizeCrossbar;            // Cell width in feature size
+	}
+
+	subArray->trainingEstimation = param->trainingEstimation;
+	subArray->XNORparallelMode = param->XNORparallelMode;               
+	subArray->XNORsequentialMode = param->XNORsequentialMode;             
+	subArray->BNNparallelMode = param->BNNparallelMode;                
+	subArray->BNNsequentialMode = param->BNNsequentialMode;              
+	subArray->conventionalParallel = param->conventionalParallel;                  
+	subArray->conventionalSequential = param->conventionalSequential;   
+	subArray->parallelBP = param->parallelBP;	
+	subArray->numRow = param->numRowSubArray;
+	subArray->numCol = param->numColSubArray;
+	subArray->levelOutput = param->levelOutput;
+	subArray->levelOutputBP = param->levelOutputAG;
+	subArray->numColMuxed = param->numColMuxed;               // How many columns share 1 read circuit (for neuro mode with analog RRAM) or 1 S/A (for memory mode or neuro mode with digital RRAM)
+	subArray->numRowMuxedBP = param->numRowMuxedAG;
+    subArray->clkFreq = param->clkFreq;                       // Clock frequency
+	subArray->relaxArrayCellHeight = param->relaxArrayCellHeight;
+	subArray->relaxArrayCellWidth = param->relaxArrayCellWidth;
+	subArray->numReadPulse = param->numBitInput;
+	subArray->avgWeightBit = param->cellBit;
+	subArray->numCellPerSynapse = param->numColPerSynapse;
+	subArray->numReadPulseBP = 8;
+	subArray->activityBPColRead = 0.5;
+	//subArray->SARADC = param->SARADC;
+	subArray->SARADC = true;
+	subArray->currentMode = param->currentMode;
+	subArray->spikingMode = NONSPIKING;
+	
+	int numRow = param->numRowSubArray;
+	int numCol = param->numColSubArray;
+	
+	if (subArray->numColMuxed > numCol) {                      // Set the upperbound of numColMuxed
+		subArray->numColMuxed = numCol;
+	}
+
+	subArray->numReadCellPerOperationFPGA = numCol;	           // Not relevant for IMEC
+	subArray->numWriteCellPerOperationFPGA = numCol;	       // Not relevant for IMEC
+	subArray->numReadCellPerOperationMemory = numCol;          // Define # of SRAM read cells in memory mode because SRAM does not have S/A sharing (not relevant for IMEC)
+	subArray->numWriteCellPerOperationMemory = numCol/8;       // # of write cells per operation in SRAM memory or the memory mode of multifunctional memory (not relevant for IMEC)
+	subArray->numReadCellPerOperationNeuro = numCol;           // # of SRAM read cells in neuromorphic mode
+	subArray->numWriteCellPerOperationNeuro = numCol;	       // For SRAM or analog RRAM in neuro mode
+    subArray->maxNumWritePulse = MAX(cell.maxNumLevelLTP, cell.maxNumLevelLTD);
+
+	int numSubArrayRow = _numSubArrayRow;
+	int numSubArrayCol = _numSubArrayCol;
+	
+	/*** initialize modules ***/
+	subArray->Initialize(numRow, numCol, param->unitLengthWireResistance);        // initialize subArray
+	//subArray->CalculateArea();
+	
+	if (param->parallelRead) {
+		adderTree_1->Initialize(numSubArrayRow, log2((double)param->levelOutput)+param->numBitInput+param->numColPerSynapse+1, ceil((double)numSubArrayCol*(double)numCol/(double)param->numColMuxed));
+	} else {
+		adderTree_1->Initialize(numSubArrayRow, (log2((double)numRow)+param->cellBit-1)+param->numBitInput+param->numColPerSynapse+1, ceil((double)numSubArrayCol*(double)numCol/(double)param->numColMuxed));
+	}
+	
+	bufferInput_1->Initialize(param->numBitInput*numRow, param->clkFreq);
+	if (param->parallelRead) {
+		bufferOutput_1->Initialize((numCol/param->numColMuxed)*(log2((double)param->levelOutput)+param->numBitInput+param->numColPerSynapse+adderTree_1->numStage), param->clkFreq);
+	} else {
+		bufferOutput_1->Initialize((numCol/param->numColMuxed)*((log2((double)numRow)+param->cellBit-1)+param->numBitInput+param->numColPerSynapse+adderTree_1->numStage), param->clkFreq);
+	}
+	
+	busInput_1->Initialize(HORIZONTAL, numSubArrayRow, numSubArrayCol, 0, numRow, subArray->height, subArray->width);
+	busOutput_1->Initialize(VERTICAL, numSubArrayRow, numSubArrayCol, 0, numCol, subArray->height, subArray->width);
+}
 
 void ProcessingUnitInitialize(SubArray *& subArray, InputParameter& inputParameter, Technology& tech, MemCell& cell, int _numSubArrayRowNM, int _numSubArrayColNM, int _numSubArrayRowCM, int _numSubArrayColCM) {
 	
@@ -230,6 +524,64 @@ void ProcessingUnitInitialize(SubArray *& subArray, InputParameter& inputParamet
 	busOutputCM->Initialize(VERTICAL, numSubArrayRowCM, numSubArrayColCM, 0, numCol, subArray->height, subArray->width);
 }
 
+vector<double> AnalogProcessingUnitCalculateArea(Acim_SubArray *subArray, int numSubArrayRow, int numSubArrayCol, double *height, double *width, double *bufferArea) {
+	vector<double> areaResults;
+	*height = 0;
+	*width = 0;
+	*bufferArea = 0;
+	double area = 0;
+	
+	subArray->CalculateArea();
+	
+	adderTree_1->CalculateArea(NULL, subArray->width, NONE);
+	bufferInput_1->CalculateArea(numSubArrayRow*subArray->height, NULL, NONE);
+	bufferOutput_1->CalculateArea(NULL, numSubArrayCol*subArray->width, NONE);
+	
+	busInput_1->CalculateArea(1, true); 
+	busOutput_1->CalculateArea(1, true);	
+	area += subArray->usedArea * (numSubArrayRow*numSubArrayCol) + adderTree_1->area + bufferInput_1->area + bufferOutput_1->area;
+	
+	*height = sqrt(area);
+	*width = area/(*height);
+	
+	areaResults.push_back(area);
+	areaResults.push_back(subArray->areaADC*(numSubArrayRow*numSubArrayCol));
+	areaResults.push_back(subArray->areaAccum*(numSubArrayRow*numSubArrayCol)+adderTree_1->area);
+	areaResults.push_back(subArray->areaOther*(numSubArrayRow*numSubArrayCol)+ bufferInput_1->area + bufferOutput_1->area);
+	areaResults.push_back(subArray->areaArray*(numSubArrayRow*numSubArrayCol));
+	
+	
+	return areaResults;
+}
+
+vector<double> DigitalProcessingUnitCalculateArea(Dcim_SubArray *subArray, int numSubArrayRow, int numSubArrayCol, double *height, double *width, double *bufferArea) {
+	vector<double> areaResults;
+	*height = 0;
+	*width = 0;
+	*bufferArea = 0;
+	double area = 0;
+	
+	subArray->CalculateArea();
+	
+	adderTree_2->CalculateArea(NULL, subArray->width, NONE);
+	bufferInput_1->CalculateArea(numSubArrayRow*subArray->height, NULL, NONE);
+	bufferOutput_1->CalculateArea(NULL, numSubArrayCol*subArray->width, NONE);
+	
+	busInput_1->CalculateArea(1, true); 
+	busOutput_1->CalculateArea(1, true);	
+	area += subArray->usedArea * (numSubArrayRow*numSubArrayCol) + adderTree_1->area + bufferInput_1->area + bufferOutput_1->area;
+	
+	*height = sqrt(area);
+	*width = area/(*height);
+	
+	areaResults.push_back(area);
+	areaResults.push_back(subArray->areaADC*(numSubArrayRow*numSubArrayCol));
+	areaResults.push_back(subArray->areaAccum*(numSubArrayRow*numSubArrayCol)+adderTree_1->area);
+	areaResults.push_back(subArray->areaOther*(numSubArrayRow*numSubArrayCol)+ bufferInput_1->area + bufferOutput_1->area);
+	areaResults.push_back(subArray->areaArray*(numSubArrayRow*numSubArrayCol));
+
+	return areaResults;
+}
 
 vector<double> ProcessingUnitCalculateArea(SubArray *subArray, int numSubArrayRow, int numSubArrayCol, bool NMpe, double *height, double *width, double *bufferArea) {
 	vector<double> areaResults;
@@ -278,6 +630,228 @@ vector<double> ProcessingUnitCalculateArea(SubArray *subArray, int numSubArrayRo
 	return areaResults;
 }
 
+double AnalogProcessingUnitCalculatePerformance(Acim_SubArray *subArray, Technology& tech, MemCell& cell, int layerNumber, int numInVector,
+											int numCell,
+											double *readLatency, double *readDynamicEnergy, double *leakage, 
+											double *readLatencyAG, double *readDynamicEnergyAG, double *writeLatencyWU, double *writeDynamicEnergyWU,
+											double *bufferLatency, double *bufferDynamicEnergy, double *icLatency, double *icDynamicEnergy,
+											double *coreLatencyADC, double *coreLatencyAccum, double *coreLatencyOther, double *coreEnergyADC, 
+											double *coreEnergyAccum, double *coreEnergyOther, double *readLatencyPeakFW, double *readDynamicEnergyPeakFW,
+											double *readLatencyPeakAG, double *readDynamicEnergyPeakAG, double *writeLatencyPeakWU, double *writeDynamicEnergyPeakWU) {
+	/*** define how many subArray are used to map the whole layer ***/
+	*readLatency = 0;
+	*readDynamicEnergy = 0;
+	*readLatencyAG = 0;
+	*readDynamicEnergyAG = 0;
+	*writeLatencyWU = 0;
+	*writeDynamicEnergyWU = 0;
+	
+	*readLatencyPeakFW = 0;
+	*readDynamicEnergyPeakFW = 0;
+	*readLatencyPeakAG = 0;
+	*readDynamicEnergyPeakAG = 0;
+	*writeLatencyPeakWU = 0;
+	*writeDynamicEnergyPeakWU = 0;
+	*leakage = 0;
+	*bufferLatency = 0;
+	*bufferDynamicEnergy = 0;
+	*icLatency = 0;
+	*icDynamicEnergy = 0;
+	*coreEnergyADC = 0;
+	*coreEnergyAccum = 0;
+	*coreEnergyOther = 0;
+	*coreLatencyADC = 0;
+	*coreLatencyAccum = 0;
+	*coreLatencyOther = 0;
+
+	int numSubsperPE = 9;
+	double subArrayReadLatency, subArrayReadDynamicEnergy, subArrayLeakage, subArrayLatencyADC, subArrayLatencyAccum, subArrayLatencyOther;
+	double subArrayReadLatencyAG, subArrayReadDynamicEnergyAG, subArrayWriteLatencyWU, subArrayWriteDynamicEnergyWU;
+	subArrayReadLatency = 0;
+
+	// 数字和模拟在这个函数中的唯一区别	
+	vector<vector<double> > subArrayInput;
+	subArrayInput = CreateInputVector(true,  numInVector);
+	vector<vector<double> > subArrayMemory;
+	subArrayMemory = CreateSubArrayMemory(true);
+	
+	for (int k=0; k<numInVector; k++) {                 // calculate single subArray through the total input vectors
+		double activityRowRead = 0;
+		vector<double> input; 
+		input = GetInputVector(subArrayInput, k, &activityRowRead);
+		subArray->activityRowRead = activityRowRead;
+		
+		int cellRange = pow(2, param->cellBit);
+		if (param->parallelRead) {
+			subArray->levelOutput = param->levelOutput;               // # of levels of the multilevelSenseAmp output
+		} else {
+			subArray->levelOutput = cellRange;
+		}
+		
+		vector<double> columnResistance;
+		columnResistance = GetColumnResistance(input, subArrayMemory, cell, param->parallelRead, subArray->resCellAccess);
+		
+		vector<double> rowResistance;
+		rowResistance = GetRowResistance(input, subArrayMemory, cell, param->parallelBP, subArray->resCellAccess);
+		
+		subArray->CalculateLatency(1e20, columnResistance, rowResistance);
+		subArray->CalculatePower(columnResistance, rowResistance);
+		
+		// subArrayReadLatency += subArray->readLatency;
+		// *readDynamicEnergy += subArray->readDynamicEnergy;
+		subArrayLeakage = subArray->leakage;
+
+		subArrayLatencyADC += subArray->readLatencyADC;
+		subArrayLatencyAccum += subArray->readLatencyAccum;
+		subArrayLatencyOther += subArray->readLatencyOther;
+		
+		*coreEnergyADC += subArray->readDynamicEnergyADC;
+		*coreEnergyAccum += subArray->readDynamicEnergyAccum;
+		*coreEnergyOther += subArray->readDynamicEnergyOther;
+	}
+	// 将能耗乘上subArray的数量
+	*readDynamicEnergy *= numSubsperPE;
+	*coreEnergyADC *= numSubsperPE;
+	*coreEnergyAccum *= numSubsperPE;
+	*coreEnergyOther *= numSubsperPE;
+
+	// 在NM pe中只需要进行求和;在CM pe中需要进行移位求和。 但我先不考虑了。。。
+	adderTree_1->CalculateLatency((int)(numInVector/param->numBitInput)*ceil(param->numColMuxed/param->numColPerSynapse),numSubsperPE, 0);
+	adderTree_1->CalculatePower((int)(numInVector/param->numBitInput)*ceil(param->numColMuxed/param->numColPerSynapse), numSubsperPE);
+	
+	// subArrayReadDynamicEnergy = 2.136324e-07;
+	// subArrayReadLatency = 1.272853e-04;
+
+	subArrayReadDynamicEnergy = 5.5e-11;
+	subArrayReadLatency = 2e-08;
+
+	// *readLatency = MAX(subArrayReadLatency + adderTree_1->readLatency, (*readLatency)) ;
+	// *readDynamicEnergy += adderTree_1->readDynamicEnergy;
+	*readLatency = MAX(subArrayReadLatency + adderTree_1->readLatency, (*readLatency)) ;
+	*readDynamicEnergy += adderTree_1->readDynamicEnergy + subArrayReadDynamicEnergy * numSubsperPE;
+
+	//DEBUG
+	//printf("subarray read latency: %e \n", subArrayReadLatency);
+	
+	// printf("Analog subarray_read latency:%e, adder tree latency:%e\n", *readLatency, adderTree_1->readLatency);
+	// printf("Analog subarray_read energy:%e, adder tree energy:%e\n", *readDynamicEnergy, adderTree_1->readDynamicEnergy);
+	// exit(-1);
+	*coreLatencyADC = MAX(subArrayLatencyADC, (*coreLatencyADC));
+	*coreLatencyAccum = MAX(subArrayLatencyAccum + adderTree_1->readLatency, (*coreLatencyAccum));
+	*coreLatencyOther = MAX(subArrayLatencyOther, (*coreLatencyOther));
+	*coreEnergyAccum += adderTree_1->readDynamicEnergy*((param->trainingEstimation)&&(layerNumber!=0)==true? 2:1);
+	
+	return 0;
+}
+
+double DigitalProcessingUnitCalculatePerformance(Dcim_SubArray *subArray, Technology& tech, MemCell& cell, int layerNumber, int numInVector,
+											int numCell,
+											double *readLatency, double *readDynamicEnergy, double *leakage, 
+											double *readLatencyAG, double *readDynamicEnergyAG, double *writeLatencyWU, double *writeDynamicEnergyWU,
+											double *bufferLatency, double *bufferDynamicEnergy, double *icLatency, double *icDynamicEnergy,
+											double *coreLatencyADC, double *coreLatencyAccum, double *coreLatencyOther, double *coreEnergyADC, 
+											double *coreEnergyAccum, double *coreEnergyOther, double *readLatencyPeakFW, double *readDynamicEnergyPeakFW,
+											double *readLatencyPeakAG, double *readDynamicEnergyPeakAG, double *writeLatencyPeakWU, double *writeDynamicEnergyPeakWU) {
+	*readLatency = 0;
+	*readDynamicEnergy = 0;
+	*readLatencyAG = 0;
+	*readDynamicEnergyAG = 0;
+	*writeLatencyWU = 0;
+	*writeDynamicEnergyWU = 0;
+	
+	*readLatencyPeakFW = 0;
+	*readDynamicEnergyPeakFW = 0;
+	*readLatencyPeakAG = 0;
+	*readDynamicEnergyPeakAG = 0;
+	*writeLatencyPeakWU = 0;
+	*writeDynamicEnergyPeakWU = 0;
+	*leakage = 0;
+	*bufferLatency = 0;
+	*bufferDynamicEnergy = 0;
+	*icLatency = 0;
+	*icDynamicEnergy = 0;
+	*coreEnergyADC = 0;
+	*coreEnergyAccum = 0;
+	*coreEnergyOther = 0;
+	*coreLatencyADC = 0;
+	*coreLatencyAccum = 0;
+	*coreLatencyOther = 0;
+
+	int numSubsperPE = 9;
+	double subArrayReadLatency, subArrayReadDynamicEnergy, subArrayLeakage, subArrayLatencyADC, subArrayLatencyAccum, subArrayLatencyOther;
+	double subArrayReadLatencyAG, subArrayReadDynamicEnergyAG, subArrayWriteLatencyWU, subArrayWriteDynamicEnergyWU;
+
+	// 数字和模拟在这个函数中的唯一区别	
+	vector<vector<double> > subArrayInput;
+	subArrayInput = CreateInputVector(false,  numInVector);
+	vector<vector<double> > subArrayMemory;
+	subArrayMemory = CreateSubArrayMemory(false);
+	
+	for (int k=0; k<numInVector; k++) {                 // calculate single subArray through the total input vectors
+		double activityRowRead = 0;
+		vector<double> input; 
+		input = GetInputVector(subArrayInput, k, &activityRowRead);
+		subArray->activityRowRead = activityRowRead;
+		
+		int cellRange = pow(2, param->cellBit_2);
+		if (param->parallelRead) {
+			subArray->levelOutput = param->levelOutput;               // # of levels of the multilevelSenseAmp output
+		} else {
+			subArray->levelOutput = cellRange;
+		}
+		
+		vector<double> columnResistance;
+		columnResistance = GetColumnResistance(input, subArrayMemory, cell, param->parallelRead, subArray->resCellAccess);
+		
+		vector<double> rowResistance;
+		rowResistance = GetRowResistance(input, subArrayMemory, cell, param->parallelBP, subArray->resCellAccess);
+		
+		subArray->CalculateLatency(1e20, columnResistance, rowResistance);
+		subArray->CalculatePower(columnResistance, rowResistance);
+		
+		// subArrayReadLatency += subArray->readLatency;
+		// *readDynamicEnergy += subArray->readDynamicEnergy;
+		subArrayLeakage = subArray->leakage;
+
+		subArrayLatencyADC += subArray->readLatencyADC;
+		subArrayLatencyAccum += subArray->readLatencyAccum;
+		subArrayLatencyOther += subArray->readLatencyOther;
+		
+		*coreEnergyADC += subArray->readDynamicEnergyADC;
+		*coreEnergyAccum += subArray->readDynamicEnergyAccum;
+		*coreEnergyOther += subArray->readDynamicEnergyOther;
+	}
+	// 将能耗乘上subArray的数量
+	*readDynamicEnergy *= numSubsperPE;
+	*coreEnergyADC *= numSubsperPE;
+	*coreEnergyAccum *= numSubsperPE;
+	*coreEnergyOther *= numSubsperPE;
+
+	// 在NM pe中只需要进行求和;在CM pe中需要进行移位求和。 但我先不考虑了。。。
+	adderTree_2->CalculateLatency((int)(numInVector/param->numBitInput)*ceil(param->numColMuxed/param->numColPerSynapse),numSubsperPE, 0);
+	adderTree_2->CalculatePower((int)(numInVector/param->numBitInput)*ceil(param->numColMuxed/param->numColPerSynapse), numSubsperPE);
+	
+	// *readLatency = MAX(subArrayReadLatency + adderTree_2->readLatency, (*readLatency));
+	// *readDynamicEnergy += adderTree_2->readDynamicEnergy;
+	// subArrayReadLatency = 1.857829e-04;
+	// subArrayReadDynamicEnergy = 4.342908e-07;
+
+	subArrayReadLatency = 6.3e-11;
+	subArrayReadDynamicEnergy = 2.6e-08;
+
+	*readLatency = MAX(subArrayReadLatency + adderTree_2->readLatency, (*readLatency));
+	*readDynamicEnergy += adderTree_2->readDynamicEnergy + subArrayReadDynamicEnergy * numSubsperPE;
+
+	// printf("Digital subarray_read latency:%e, adder tree latency:%e\n", *readLatency, adderTree_2->readLatency);
+	// printf("Digital subarray_read energy:%e, adder tree energy:%e\n", *readDynamicEnergy, adderTree_2->readDynamicEnergy);
+	//exit(-1);
+	*coreLatencyADC = MAX(subArrayLatencyADC, (*coreLatencyADC));
+	*coreLatencyAccum = MAX(subArrayLatencyAccum + adderTree_2->readLatency, (*coreLatencyAccum));
+	*coreLatencyOther = MAX(subArrayLatencyOther, (*coreLatencyOther));
+	*coreEnergyAccum += adderTree_2->readDynamicEnergy*((param->trainingEstimation)&&(layerNumber!=0)==true? 2:1);
+
+	return 0;
+}
 
 double ProcessingUnitCalculatePerformance(SubArray *subArray, Technology& tech, MemCell& cell, int layerNumber, bool NMpe, 
 											const vector<vector<double> > &newMemory, const vector<vector<double> > &oldMemory, const vector<vector<double> > &inputVector,
@@ -323,6 +897,7 @@ double ProcessingUnitCalculatePerformance(SubArray *subArray, Technology& tech, 
 		if (arrayDupRow < numSubArrayRow || arrayDupCol < numSubArrayCol) {
 			// a couple of subArrays are mapped by the matrix
 			// need to redefine the data-grab start-point
+			//TODO： 将PE权重分割到Subarray
 			for (int i=0; i<ceil((double) weightMatrixRow/(double) param->numRowSubArray); i++) {
 				for (int j=0; j<ceil((double) weightMatrixCol/(double) param->numColSubArray); j++) {
 					int numRowMatrix = min(param->numRowSubArray, weightMatrixRow-i*param->numRowSubArray);
@@ -351,9 +926,10 @@ double ProcessingUnitCalculatePerformance(SubArray *subArray, Technology& tech, 
 							int totalNumWritePulse = 0;
 							double writeDynamicEnergyArray = 0;
 							
+							// estimate update weight energy/latency
 							GetWriteUpdateEstimation(subArray, tech, cell, subArrayMemory, subArrayMemoryOld, 
 								&activityColWrite, &activityRowWrite, &numWritePulseAVG, &totalNumWritePulse, &writeDynamicEnergyArray);
-							
+							// 获取data-based 的一些参数
 							subArray->activityColWrite = activityColWrite;
 							subArray->activityRowWrite = activityRowWrite;
 							subArray->numWritePulseAVG = numWritePulseAVG;
@@ -992,4 +1568,3 @@ void GetWriteUpdateEstimation(SubArray *subArray, Technology& tech, MemCell& cel
 		*writeDynamicEnergyArray = 0; // leave to subarray.cpp 
 	}
 }
-

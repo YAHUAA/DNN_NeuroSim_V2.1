@@ -57,10 +57,10 @@ Param::Param() {
 	operationmode = 2;     		// 1: conventionalSequential (Use several multi-bit RRAM as one synapse)
 								// 2: conventionalParallel (Use several multi-bit RRAM as one synapse)
 	
-	memcelltype = 3;        	// 1: cell.memCellType = Type::SRAM
+	memcelltype = 2;        	// 1: cell.memCellType = Type::SRAM
 								// 2: cell.memCellType = Type::RRAM
 								// 3: cell.memCellType = Type::FeFET
-	
+
 	accesstype = 1;         	// 1: cell.accessType = CMOS_access
 								// 2: cell.accessType = BJT_access
 								// 3: cell.accessType = diode_access
@@ -136,7 +136,8 @@ Param::Param() {
 	
 	numColMuxed = 8;                    // How many columns share 1 ADC (for eNVM and FeFET) or parallel SRAM
 	levelOutput = 64;                  // # of levels of the multilevelSenseAmp output, should be in 2^N forms; e.g. 32 levels --> 5-bit ADC
-	cellBit = 5;                        // precision of memory device 
+	cellBit = 2;                        // precision of memory device 
+	
 	
 	/*** parameters for SRAM ***/
 	// due the scaling, suggested SRAM cell size above 22nm: 160F^2
@@ -179,7 +180,7 @@ Param::Param() {
 	/****** in training: we initialize bi-direction subArray to calculate forward and gradient calculation of activation ******/
 	/****** the gradient calculation of weight is processed in seperate hardware (SRAM array: since need frequent write and erase) ******/
 	
-	trainingEstimation = true; 		// false: only run estimation for inference chip
+	trainingEstimation = false; 		// false: only run estimation for inference chip
 										// true: run estimation for both inference and training on-chip
 	
 	parallelBP = true;          		// false: conventionalSequential (Use several multi-bit RRAM as one synapse)
@@ -237,6 +238,7 @@ Param::Param() {
 	} else {
 		parallelRead = 0;
 	}
+
 	
 	/*** Initialize interconnect wires ***/
 	switch(wireWidth) {
@@ -274,5 +276,26 @@ Param::Param() {
 		wireResistanceCol = unitLengthWireResistance * wireLengthCol;
 	}
 	/***************************************** Initialization of parameters NO need to modify *****************************************/
+
+	// SRAM parameters
+	memcelltype_2 = 1;              // SRAM
+
+	cellBit_2 = 1;                      // default precision of SRAM cell 
+	synapseBit_2 = synapseBit;          // default synapse precision for digital domain
+
+	// numRowPerSynapse_2 = numRowPerSynapse;
+	// numColPerSynapse_2 = numColPerSynapse;
+	numRowSubArray_2 = 64;
+	numColSubArray_2 = 64;
+
+	numTiles_1 = 16;
+	numTiles_2 = 16;
+	numPEperTile_1 = 16;
+	numSubArrayperPE_1 = 9;
+	numPEperTile_2 = 16;
+	numSubArrayperPE_2 = 9;
+
+	layerResourceFile = "layer_resource_mapping.csv";
+	systemResourceFile = "system_resources.ini";
 }
 

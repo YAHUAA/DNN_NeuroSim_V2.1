@@ -79,7 +79,8 @@ class QConv2d(nn.Conv2d):
                                 # Here remainder is the weight mapped to Hardware, so we introduce on/off ratio in this value
                                 # the range of remainder is [0, cellRange-1], we truncate it to [lower, upper]
                                 remainderQ = (upper-lower)*(remainder-0)+(cellRange-1)*lower   # weight cannot map to 0, but to Gmin
-                                remainderQ = remainderQ + torch.normal(0., torch.full(remainderQ.size(),self.vari, device='cuda'))
+                                #HACK
+                                remainderQ = remainderQ + torch.normal(0., torch.full(remainderQ.size(),float(self.vari), device='cuda'))
                                 outputPartial= F.conv2d(input, remainderQ*mask, self.bias, self.stride, self.padding, self.dilation, self.groups)
                                 outputDummyPartial= F.conv2d(input, dummyP*mask, self.bias, self.stride, self.padding, self.dilation, self.groups)
                                 scaler = cellRange**k
@@ -139,7 +140,8 @@ class QConv2d(nn.Conv2d):
                                     # Here remainder is the weight mapped to Hardware, so we introduce on/off ratio in this value
                                     # the range of remainder is [0, cellRange-1], we truncate it to [lower, upper]*(cellRange-1)
                                     remainderQ = (upper-lower)*(remainder-0)+(cellRange-1)*lower   # weight cannot map to 0, but to Gmin
-                                    remainderQ = remainderQ + remainderQ*torch.normal(0., torch.full(remainderQ.size(),self.vari, device='cuda'))
+                                    #HACK
+                                    remainderQ = remainderQ + remainderQ*torch.normal(0., torch.full(remainderQ.size(),float(self.vari), device='cuda'))
                                     outputPartial= F.conv2d(inputB, remainderQ*mask, self.bias, self.stride, self.padding, self.dilation, self.groups)
                                     outputDummyPartial= F.conv2d(inputB, dummyP*mask, self.bias, self.stride, self.padding, self.dilation, self.groups)
                                     # Add ADC quanization effects here !!!
@@ -245,7 +247,7 @@ class QLinear(nn.Linear):
                         # Here remainder is the weight mapped to Hardware, so we introduce on/off ratio in this value
                         # the range of remainder is [0, cellRange-1], we truncate it to [lower, upper]
                         remainderQ = (upper-lower)*(remainder-0)+(cellRange-1)*lower   # weight cannot map to 0, but to Gmin
-                        remainderQ = remainderQ + remainderQ*torch.normal(0., torch.full(remainderQ.size(),self.vari, device='cuda'))
+                        remainderQ = remainderQ + remainderQ*torch.normal(0., torch.full(remainderQ.size(),float(self.vari), device='cuda'))
                         outputPartial= F.linear(inputB, remainderQ*mask, self.bias)
                         outputDummyPartial= F.linear(inputB, dummyP*mask, self.bias)
                         # Add ADC quanization effects here !!!
@@ -278,7 +280,7 @@ class QLinear(nn.Linear):
                             # Here remainder is the weight mapped to Hardware, so we introduce on/off ratio in this value
                             # the range of remainder is [0, cellRange-1], we truncate it to [lower, upper]*(cellRange-1)
                             remainderQ = (upper-lower)*(remainder-0)+(cellRange-1)*lower   # weight cannot map to 0, but to Gmin
-                            remainderQ = remainderQ + remainderQ*torch.normal(0., torch.full(remainderQ.size(),self.vari, device='cuda'))
+                            remainderQ = remainderQ + remainderQ*torch.normal(0., torch.full(remainderQ.size(),float(self.vari), device='cuda'))
                             outputPartial= F.linear(inputB, remainderQ*mask, self.bias)
                             outputDummyPartial= F.linear(inputB, dummyP*mask, self.bias)
                             # Add ADC quanization effects here !!!

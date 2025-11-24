@@ -39,11 +39,14 @@
 #ifndef PARAM_H_
 #define PARAM_H_
 
+#include <string>
+
 class Param {
 public:
 	Param();
 
-	int operationmode, operationmodeBack, memcelltype, accesstype, transistortype, deviceroadmap;      		
+	int operationmode, operationmodeBack, memcelltype,  accesstype, transistortype, deviceroadmap;  
+	int memcelltype_2;    		
 	
 	double heightInFeatureSizeSRAM, widthInFeatureSizeSRAM, widthSRAMCellNMOS, widthSRAMCellPMOS, widthAccessCMOS, minSenseVoltage;
 	
@@ -70,11 +73,26 @@ public:
 	int numlut, numColMuxed, numWriteColMuxed, levelOutput, avgWeightBit, numBitInput, numRowMuxedAG, levelOutputAG, numRowMuxedWG, levelOutputWG;
 	int numRowSubArray, numColSubArray, numRowSubArrayWG, numColSubArrayWG;
 	int cellBit, synapseBit;
+	
 	int speedUpDegree, dramType, batchSize, numIteration;
 	
 	int XNORparallelMode, XNORsequentialMode, BNNparallelMode, BNNsequentialMode, conventionalParallel, conventionalSequential; 
 	int numRowPerSynapse, numColPerSynapse;
 	double AR, Rho, wireLengthRow, wireLengthCol, unitLengthWireResistance, wireResistanceRow, wireResistanceCol;
+
+	// Dcim
+	//TAG
+	
+	int numRowSubArray_2, numColSubArray_2;
+	int cellBit_2, synapseBit_2;
+	int numRowPerSynapse_2, numColPerSynapse_2;
+
+	int numTiles_1, numTiles_2;
+	int numPEperTile_1,numSubArrayperPE_1;
+	int numPEperTile_2, numSubArrayperPE_2;
+
+	std::string layerResourceFile;
+	std::string systemResourceFile;
 };
 
 #endif

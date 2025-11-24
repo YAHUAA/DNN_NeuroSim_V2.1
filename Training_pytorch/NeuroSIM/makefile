@@ -39,13 +39,15 @@
 .SECONDEXPANSION:
 
 MAINS := main.cpp
-ALLSRC := $(wildcard *.cpp)
+ALLSRC := $(wildcard *.cpp my_components/*.cpp)
 SRC := $(filter-out $(MAINS),$(ALLSRC))
 ALLOBJ := $(ALLSRC:.cpp=.o)
 OBJ := $(SRC:.cpp=.o)
 
 CXX := g++
-CXXFLAGS := -fopenmp -fPIC -g -O3 -std=c++0x
+# CXXFLAGS := -fopenmp -fPIC -g -O3 -std=c++0x
+CXXFLAGS := -fopenmp -fPIC -g -O0 -std=c++0x -fno-omit-frame-pointer
+CXXFLAGS_DEBUG := -fopenmp -fPIC -g -O0 -std=c++0x -fno-omit-frame-pointer
 
 .PHONY: all clean
 all: $(MAINS:.cpp=)
@@ -65,3 +67,8 @@ clean:
 	$(RM) $(MAINS:.cpp=)
 	$(RM) $(ALLOBJ)
 
+debug: CXXFLAGS := $(CXXFLAGS_DEBUG)
+debug: all
+
+run: all
+	./$(MAINS:.cpp=)

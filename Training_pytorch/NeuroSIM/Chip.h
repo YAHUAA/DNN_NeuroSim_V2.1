@@ -46,12 +46,20 @@ vector<int> ChipDesignInitialize(InputParameter& inputParameter, Technology& tec
 vector<vector<double> > ChipFloorPlan(bool findNumTile, bool findUtilization, bool findSpeedUp, const vector<vector<double> > &netStructure, const vector<int > &markNM, 
 					double maxPESizeNM, double maxTileSizeCM, double numPENM, const vector<int> &pipelineSpeedUp,
 					double *desiredNumTileNM, double *desiredPESizeNM, double *desiredNumTileCM, double *desiredTileSizeCM, double *desiredPESizeCM, int *numTileRow, int *numTileCol);
-					
+
+void HybridChipInitialize(InputParameter& inputParameter, Technology& tech, MemCell& cell_1,MemCell& cell_2, const vector<vector<double> > &netStructure, const vector<int > &markNM,
+					int numTileRow_a, int numTileCol_a, int numTileRow_d, int numTileCol_d,
+					double numSubarraysperPE_a, double numPEsperTile_a,  double numTiles_a,
+					double numSubarraysperPE_d, double numPEsperTile_d,  double numTiles_d,
+					int *numArrayWriteParallel);
+
 void ChipInitialize(InputParameter& inputParameter, Technology& tech, MemCell& cell_1,MemCell& cell_2, const vector<vector<double> > &netStructure, const vector<int > &markNM, const vector<vector<double> > &numTileEachLayer,
 					double numPENM, double desiredNumTileNM, double desiredPESizeNM, double desiredNumTileCM, double desiredTileSizeCM, double desiredPESizeCM, int numTileRow, int numTileCol, int *numArrayWriteParallel);
 					
 vector<double> ChipCalculateArea(InputParameter& inputParameter, Technology& tech, MemCell& cell, double desiredNumTileNM, double numPENM, double desiredPESizeNM, double desiredNumTileCM, double desiredTileSizeCM, double desiredPESizeCM, 
 						int numTileRow, double *height, double *width, double *CMTileheight, double *CMTilewidth, double *NMTileheight, double *NMTilewidth);
+	
+void HybridChipCalculateArea(InputParameter& inputParameter, Technology& tech, MemCell& cell_1, MemCell& cell_2, double numPE_1, double numPE_2); 
 						
 double ChipCalculatePerformance(InputParameter& inputParameter, Technology& tech, MemCell& cell, int layerNumber, const string &newweightfile, const string &oldweightfile, const string &inputfile, bool followedByMaxPool, const vector<vector<double> > &netStructure, 
 							const vector<int> &markNM, const vector<vector<double> > &numTileEachLayer, const vector<vector<double> > &utilizationEachLayer, const vector<vector<double> > &speedUpEachLayer, 
@@ -77,4 +85,23 @@ vector<vector<double> > LoadInInputData(const string &inputfile);
 vector<vector<double> > CopyInput(const vector<vector<double> > &orginal, int positionRow, int numInputVector, int numRow);
 vector<vector<double> > ReshapeInput(const vector<vector<double> > &orginal, int positionRow, int numInputVector, int numRow, int numPE, int weightMatrixRow);
 
+vector<vector<double> > Split_CopyArray(const vector<vector<double> > &orginal, int numRow, int numCol, int bit_idx, int kernelgroup_idx,
+									   int numCell);
+vector<vector<double> > Split_CopyInput(const vector<vector<double> > &orginal, int numInputVector, int numRow
+									    );
+
+vector<vector<double>> CreateInputVector(bool isAnalog, int numInVector);
+vector<vector<double>> CreateSubArrayMemory(bool isAnalog);
+
+double HybridChipCalculatePerformance(InputParameter& inputParameter, Technology& tech, MemCell& cell, MemCell& cell_2, int layerNumber, bool followedByMaxPool, 
+							const vector<vector<double> > &netStructure, const vector<int> &markNM, const vector<vector<double> > &numTileEachLayer, const vector<vector<double> > &utilizationEachLayer, 
+							const vector<vector<double> > &speedUpEachLayer, const vector<vector<double> > &tileLocaEachLayer, double numPENM, double desiredPESizeNM, double desiredTileSizeCM, 
+							double desiredPESizeCM, double CMTileheight, double CMTilewidth, double NMTileheight, double NMTilewidth, int numArrayWriteParallel,
+							double *readLatency, double *readDynamicEnergy, double *leakage, double *readLatencyAG, double *readDynamicEnergyAG, double *readLatencyWG, double *readDynamicEnergyWG, 
+							double *writeLatencyWU, double *writeDynamicEnergyWU, double *bufferLatency, double *bufferDynamicEnergy, double *icLatency, double *icDynamicEnergy, double *coreLatencyADC, 
+							double *coreLatencyAccum, double *coreLatencyOther, double *coreEnergyADC, double *coreEnergyAccum, double *coreEnergyOther, double *dramLatency, double *dramDynamicEnergy,
+							double *readLatencyPeakFW, double *readDynamicEnergyPeakFW, double *readLatencyPeakAG, double *readDynamicEnergyPeakAG, double *readLatencyPeakWG, double *readDynamicEnergyPeakWG,
+							double *writeLatencyPeakWU, double *writeDynamicEnergyPeakWU, const vector<int> &splitBit);
+
+// vector<vector<int>> parseLayerSplit(const string &layerSplitStr, size_t expectedLayers);
 #endif /* CHIP_H_ */

@@ -49,11 +49,19 @@
 #include "Technology.h"
 #include "MemCell.h"
 
+#include "my_components/Acim_SubArray.h"
+#include "my_components/Dcim_SubArray.h"
+
 using namespace std;
 
 /*** Functions ***/
 void TileInitialize(InputParameter& inputParameter, Technology& tech, MemCell& cell, double _numPENM, double _peSizeNM, double _numPECM, double _peSizeCM);
+
+void AcimTileInitialize(InputParameter& inputParameter, Technology& tech, MemCell& cell, double _numPE, double _peSize);
+void DcimTileInitialize(InputParameter& inputParameter, Technology& tech, MemCell& cell, double _numPE, double _peSize);
+
 vector<double> TileCalculateArea(double numPE, double peSize, bool NMTile, double *height, double *width);
+void HybridTileCalculateArea(double numPE_1, double numPE_2);
 void TileCalculatePerformance(const vector<vector<double> > &newMemory, const vector<vector<double> > &oldMemory, const vector<vector<double> > &inputVector, 
 			int novelMap, int layerNumber, double numPE, double peSize, 
 			int speedUpRow, int speedUpCol, int weightMatrixRow, int weightMatrixCol, int numInVector, 
@@ -67,5 +75,13 @@ void TileCalculatePerformance(const vector<vector<double> > &newMemory, const ve
 vector<vector<double> > CopyPEArray(const vector<vector<double> > &orginal, int positionRow, int positionCol, int numRow, int numCol);
 vector<vector<double> > CopyPEInput(const vector<vector<double> > &orginal, int positionRow, int numInputVector, int numRow);
 	
-
+void HybridTileCalculatePerformance( int novelMap, int layerNumber, double numPE, 
+			double peSize, int speedUpRow, int speedUpCol, int numInVector, Technology& tech, MemCell& cell_1, MemCell& cell_2,
+			double *readLatency, double *readDynamicEnergy, double *leakage, double *readLatencyAG, double *readDynamicEnergyAG, double *writeLatencyWU, double *writeDynamicEnergyWU,
+			double *bufferLatency, double *bufferDynamicEnergy, double *icLatency, double *icDynamicEnergy,
+			double *coreLatencyADC, double *coreLatencyAccum, double *coreLatencyOther, double *coreEnergyADC, 
+			double *coreEnergyAccum, double *coreEnergyOther, double *readLatencyPeakFW, double *readDynamicEnergyPeakFW,
+			double *readLatencyPeakAG, double *readDynamicEnergyPeakAG, double *writeLatencyPeakWU, double *writeDynamicEnergyPeakWU,
+			bool is_Analog, int numCell
+);
 #endif /* TILE_H_ */

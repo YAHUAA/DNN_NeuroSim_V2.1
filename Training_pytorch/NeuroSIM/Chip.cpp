@@ -58,11 +58,19 @@
 #include "Param.h"
 #include "Chip.h"
 #include "Adder.h"
+#include "Bus.h"
+#include "ProcessingUnit.h"
+
+#include "./my_components/ContrateUnit.h"
 
 using namespace std;
 
 extern Param *param;
+
 double globalBusWidth = 0;
+double globalBusWidth_1 = 0;  // for rram
+double globalBusWidth_2 = 0;  // for sram
+
 int numBufferCore = 0;
 
 /*** Circuit Modules ***/
@@ -76,6 +84,16 @@ DRAM *dRAM;
 WeightGradientUnit *weightGradientUnit;
 Adder *gradientAccum;
 
+HTree *GhTree_a;
+HTree *GhTree_d;
+
+// ContrateUnit *GlobalConctrateUnit;
+AdderTree *GlobalConctrateUnit;
+
+AdderTree *Tileaccumulation_1;
+AdderTree *Tileaccumulation_2;
+
+
 vector<int> ChipDesignInitialize(InputParameter& inputParameter, Technology& tech, MemCell& cell, bool pip, const vector<vector<double> > &netStructure,
 					double *maxPESizeNM, double *maxTileSizeCM, double *numPENM){
 
@@ -88,6 +106,12 @@ vector<int> ChipDesignInitialize(InputParameter& inputParameter, Technology& tec
 	dRAM = new DRAM(inputParameter, tech, cell);
 	weightGradientUnit = new WeightGradientUnit(inputParameter, tech, cell);
 	gradientAccum = new Adder(inputParameter, tech, cell);
+
+	GhTree_a = new HTree(inputParameter, tech, cell);
+	GhTree_d = new HTree(inputParameter, tech, cell);
+	GlobalConctrateUnit = new AdderTree(inputParameter, tech, cell);
+	Tileaccumulation_1 = new AdderTree(inputParameter, tech, cell);
+	Tileaccumulation_2 = new AdderTree(inputParameter, tech, cell);
 	
 	int numRowPerSynapse, numColPerSynapse;
 	numRowPerSynapse = param->numRowPerSynapse;
@@ -120,15 +144,13 @@ vector<int> ChipDesignInitialize(InputParameter& inputParameter, Technology& tec
 				}
 			}
 		}
-		*numPENM = numPE;
+		*numPENM = numPE;  // store the max number of PEs in one Tile
 		// mark the layers that use novel mapping
 		for (int i=0; i<numLayer; i++) {
 			
-			if ((netStructure[i][3]*netStructure[i][4]== (*numPENM))
-				// large Cov layers use novel mapping
-				&&(netStructure[i][2]*netStructure[i][3]*netStructure[i][4]*numRowPerSynapse >= param->numRowSubArray)) {
-				markNM.push_back(1);
-				minCube = pow(2, ceil((double) log2((double) netStructure[i][5]*(double) numColPerSynapse) ) );
+			if(netStructure[i][2]*netStructure[i][3]*netStructure[i][4]*numRowPerSynapse >= param->numRowSubArray) {
+				markNM.push_back(1);  // mark this layer as novel mapping
+				minCube = pow(2, ceil((double) log2((double) netStructure[i][5]*(double) numColPerSynapse) ) ); // 2的整数次幂，大于等于该层的输出通道数
 				*maxPESizeNM = max(minCube, (*maxPESizeNM));
 			} else {
 				// small Cov layers and FC layers use conventional mapping
@@ -183,7 +205,7 @@ vector<int> ChipDesignInitialize(InputParameter& inputParameter, Technology& tec
 	}
 }
 
-
+// 寻找在novelmapping和conventional-mapping下，使utilization最大的tile size和PE size
 vector<vector<double> > ChipFloorPlan(bool findNumTile, bool findUtilization, bool findSpeedUp, const vector<vector<double> > &netStructure, const vector<int > &markNM, 
 					double maxPESizeNM, double maxTileSizeCM, double numPENM, const vector<int> &pipelineSpeedUp,
 					double *desiredNumTileNM, double *desiredPESizeNM, double *desiredNumTileCM, double *desiredTileSizeCM, double *desiredPESizeCM, int *numTileRow, int *numTileCol) {
@@ -222,6 +244,7 @@ vector<vector<double> > ChipFloorPlan(bool findNumTile, bool findUtilization, bo
 			*desiredNumTileNM = initialDesignNM[0];
 			for (double thisPESize = MAX(maxPESizeNM, 2*param->numRowSubArray); thisPESize> 2*param->numRowSubArray; thisPESize/=2) {
 				// for layers use novel mapping
+				// devide the PE size from max to min, which can realize the biggest utilization
 				double thisUtilization = 0;
 				vector<double> thisDesign;
 				thisDesign = TileDesignNM(thisPESize, markNM, netStructure, numRowPerSynapse, numColPerSynapse, numPENM);
@@ -325,7 +348,7 @@ vector<vector<double> > ChipFloorPlan(bool findNumTile, bool findUtilization, bo
 			}
 		}
 	}
-	
+	// it opints out that the TileCM and TileNM are isolated
 	*numTileRow = ceil((double)sqrt((double)(*desiredNumTileCM)+(double)(*desiredNumTileNM)));
 	*numTileCol = ceil((double)((*desiredNumTileCM)+(*desiredNumTileNM))/(double)(*numTileRow));
 	
@@ -362,8 +385,94 @@ vector<vector<double> > ChipFloorPlan(bool findNumTile, bool findUtilization, bo
 	speedUpEachLayer.clear();
 }
 
-//添加第2种memcell
-void ChipInitialize(InputParameter& inputParameter, Technology& tech, MemCell& cell_1,MemCell& cell_2, const vector<vector<double> > &netStructure, const vector<int > &markNM, const vector<vector<double> > &numTileEachLayer,
+// cell_1 sram cell_2 rram
+void HybridChipInitialize(InputParameter& inputParameter, Technology& tech, MemCell& cell_1,MemCell& cell_2, const vector<vector<double> > &netStructure, const vector<int > &markNM,
+					int numTileRow_a, int numTileCol_a, int numTileRow_d, int numTileCol_d,
+					double numSubarraysperPE_a, double numPEsperTile_a,  double numTiles_a,
+					double numSubarraysperPE_d, double numPEsperTile_d,  double numTiles_d,
+					int *numArrayWriteParallel) {
+	
+	double numSubarrays_a,numPEs_a;
+	int PESize_a;
+	int TileSize_a;
+	
+	numPEs_a = numPEsperTile_a ;
+	numSubarrays_a = numSubarraysperPE_a * numPEs_a;
+
+	double numSubarrays_d,numPEs_d;
+	int PESize_d;
+	int TileSize_d;
+	numPEs_d = numPEsperTile_d ;
+	numSubarrays_d = numSubarraysperPE_d * numPEs_d;
+	
+	// int numRow_1 = param->numRowSubArray;
+	// int numCol_1 = param->numColSubArray;
+	// subArray_1->Initialize(numRow_1, numCol_1, param->unitLengthWireResistance); 
+	// int numRow_2 = param->numRowSubArray_2;
+	// int numCol_2 = param->numColSubArray_2;
+	// subArray_2->Initialize(numRow_2, numCol_2, param->unitLengthWireResistance);
+
+
+	// subArrayINPE_1 = new Acim_SubArray(inputParameter, tech, cell);
+	// AProcessingUnitInitialize(subArrayINPE_1, inputParameter, tech, cell, ceil(sqrt(numSubArray)), ceil(sqrt(numSubArray)));
+
+	int PESize_1 = ceil(sqrt(numSubarraysperPE_a)) * param->numRowSubArray;
+	int PESize_2 = ceil(sqrt(numSubarraysperPE_d)) * param->numRowSubArray_2;
+	AcimTileInitialize(inputParameter, tech, cell_1, numPEsperTile_a, 0);
+	DcimTileInitialize(inputParameter, tech, cell_2, numPEsperTile_d, 0);
+
+	// find max layer and define the global buffer: enough to hold the max layer inputs
+	double maxLayerInput = 0; 
+	// find max # tiles needed to be added at the same time
+	double maxTileAdded = 0;
+	int maxIFMLayer = 0;
+	
+	//TODO: determine the globalBusWidth according to the analog/digital tiles
+	for (int i=0; i<netStructure.size(); i++) {
+		double input = netStructure[i][0]*netStructure[i][1]*netStructure[i][2];  // IFM_Row * IFM_Column * IFM_depth
+
+		if (input > maxLayerInput) {
+			maxLayerInput = input;
+			maxIFMLayer = i;
+		}
+		globalBusWidth_1 += (TileSize_a)+(TileSize_a)/param->numColMuxed;
+		globalBusWidth_2 += (TileSize_d)+(TileSize_d);
+
+	}
+	// have to limit the global bus width --> cannot grow dramatically with num of tile
+	while (globalBusWidth > param->maxGlobalBusWidth) {
+		globalBusWidth /= 2;
+	}
+	// define bufferSize for inference operation
+	int bufferSize = param->numBitInput*maxLayerInput;
+
+	// consider limited buffer to store gradient of weight: only part of the weight matrix is processed at a specific cycle
+	// we could set a bufferOverheadConstraint to limit the overhead and speed of computation and weight-update
+	// start: at least can support gradient of one weight matrix = subArray size * weightPrecision/cellPrecision
+	int bufferOverHead = param->numRowSubArray*param->numColSubArray*param->numColPerSynapse*(weightGradientUnit->outPrecision+ceil(log2(param->batchSize)));
+	*numArrayWriteParallel = floor(bufferOverHead/((param->numRowSubArray*param->numColSubArray)*param->synapseBit));
+	
+	dRAM->Initialize(param->dramType); 
+	
+	//globalBuffer->Initialize(param->numBitInput*maxLayerInput, globalBusWidth, 1, param->unitLengthWireResistance, param->clkFreq, param->globalBufferType);
+	numBufferCore = ceil(bufferSize/(param->globalBufferCoreSizeRow*param->globalBufferCoreSizeCol));
+	//numBufferCore = ceil(1.5*numBufferCore);
+	globalBuffer->Initialize((param->globalBufferCoreSizeRow*param->globalBufferCoreSizeCol), param->globalBufferCoreSizeCol, 1, param->unitLengthWireResistance, param->clkFreq, param->globalBufferType);
+	
+	int numMaxPooling = 256; // 最多一次产生256个OFM pixel
+	maxPool->Initialize(param->numBitInput, 2*2, numMaxPooling);
+	// GhTree->Initialize((numTileRow), (numTileCol), param->globalBusDelayTolerance, globalBusWidth);
+	GhTree_a->Initialize((numTileRow_a), (numTileCol_a), param->globalBusDelayTolerance, globalBusWidth);
+	GhTree_d->Initialize((numTileRow_d), (numTileCol_d), param->globalBusDelayTolerance, globalBusWidth);
+
+	//TAG: 全局聚合单元，由dff寄存器组成
+	//GlobalConctrateUnit->Initialize(param->numColSubArray, param->levelOutput, param->clkFreq );
+	//GlobalConctrateUnit->Initialize(param->numColPerSynapse, ceil(log2(param->numRowSubArray))+1, param->numColSubArray_2);
+	Tileaccumulation_1->Initialize(9, ceil(log2(param->numRowSubArray))+1, param->numColSubArray);
+	Tileaccumulation_2->Initialize(9, ceil(log2(param->numRowSubArray_2))+1, param->numColSubArray_2);
+}
+
+void ChipInitialize(InputParameter& inputParameter, Technology& tech, MemCell& cell_1, const vector<vector<double> > &netStructure, const vector<int > &markNM, const vector<vector<double> > &numTileEachLayer,
 					double numPENM, double desiredNumTileNM, double desiredPESizeNM, double desiredNumTileCM, double desiredTileSizeCM, double desiredPESizeCM, int numTileRow, int numTileCol, int *numArrayWriteParallel) { 
 
 	/*** Initialize Tile ***/
@@ -385,6 +494,7 @@ void ChipInitialize(InputParameter& inputParameter, Technology& tech, MemCell& c
 			if (markNM[i] == 0) {
 				globalBusWidth += (desiredTileSizeCM)+(desiredTileSizeCM)/param->numColMuxed;
 			} else {
+				// sqrt(numPENM) represent the number of PEs in one row/column
 				globalBusWidth += (desiredPESizeNM)*ceil((double)sqrt(numPENM))+(desiredPESizeNM)*ceil((double)sqrt(numPENM))/param->numColMuxed;
 			}
 		} else {
@@ -446,7 +556,7 @@ void ChipInitialize(InputParameter& inputParameter, Technology& tech, MemCell& c
 	GhTree->Initialize((numTileRow), (numTileCol), param->globalBusDelayTolerance, globalBusWidth);
 	
 	//activation inside Tile or outside?
-	if (param->chipActivation) {
+	if (param->chipActivation) {  // outside the tile
 		int maxThroughputTile, maxAddFromSubArray;
 		if (param->novelMapping) {
 			maxThroughputTile = (int) max((desiredTileSizeCM), ceil((double)sqrt(numPENM))*(desiredPESizeNM));
@@ -511,7 +621,23 @@ void ChipInitialize(InputParameter& inputParameter, Technology& tech, MemCell& c
 	}
 }
 
+void HybridChipCalculateArea(InputParameter& inputParameter, Technology& tech, MemCell& cell_1, MemCell& cell_2, double numPE_1, double numPE_2) {
+	
+	double area = 0;
+	double areaIC = 0;
+	double areaADC = 0;
+	double areaAccum = 0;
+	double areaOther = 0;
+	double areaArray = 0;
+	
+	double NMheight = 0;
+	double NMwidth = 0;
+	double CMheight = 0;
+	double CMwidth = 0;
 
+	HybridTileCalculateArea(numPE_1, numPE_2);
+	
+	}
 
 vector<double> ChipCalculateArea(InputParameter& inputParameter, Technology& tech, MemCell& cell, double desiredNumTileNM, double numPENM, double desiredPESizeNM, double desiredNumTileCM, double desiredTileSizeCM, 
 						double desiredPESizeCM, int numTileRow, double *height, double *width, double *CMTileheight, double *CMTilewidth, double *NMTileheight, double *NMTilewidth) {
@@ -626,7 +752,409 @@ vector<double> ChipCalculateArea(InputParameter& inputParameter, Technology& tec
 	return areaResults;
 }
 
+// 获取权重矩阵的拆分索引对
+vector<vector<vector<int>>> Matrix_map_list_initial( int layer_idx, const vector<vector<double> > &netStructure,
+		const vector<int> &markNM, vector<vector<int>> splitBit) {
+	vector<vector<int>> Matrix_map_list_1;
+	vector<vector<int>> Matrix_map_list_2;
+	// 生成一组三维数组，表示每个子阵列的映射关系
+	int l = layer_idx;
 
+	int numInChannelGroups_1 = ceil(netStructure[l][2] / param->numRowSubArray);
+	int numOutChannelGroups_1 = ceil(netStructure[l][5] / param->numColSubArray);
+
+	int numInChannelGroups_2 = ceil(netStructure[l][2] / param->numColSubArray_2);
+	int numOutChannelGroups_2 = ceil(netStructure[l][5] / param->numRowSubArray_2);
+
+	// 构建 [bit_idx, inchannel_idx, outchannel_idx] 的三维数组
+	// analog
+	for (int k = 0; k < numOutChannelGroups_1; ++k) {
+		for (int j = 0; j < numInChannelGroups_1; ++j) {
+			for (int i = 0; i < splitBit[l][0]; ++i) {
+				vector<int> matrix_map = {i, j, k};
+				Matrix_map_list_1.push_back(matrix_map);
+			}
+		}
+	}
+	for (int k = 0; k < numOutChannelGroups_2; ++k) {
+		for (int j = 0; j < numInChannelGroups_2; ++j) {
+			for (int i = 0; i < splitBit[l][1]; ++i) {
+				vector<int> matrix_map = {i, j, k};
+				Matrix_map_list_2.push_back(matrix_map);
+			}
+		}
+	}
+	return {Matrix_map_list_1, Matrix_map_list_2};
+}
+
+vector<int> SplitMatrix(InputParameter& inputParameter, Technology& tech, MemCell& cell, int layerNumber, const string &newweightfile, const string &oldweightfile, const string &inputfile,
+		const vector<vector<double> > &netStructure, const vector<int> &markNM, vector<vector<int>> splitBit, bool is_conv,
+		int numSubperPE_1, int numPEperTile_1, int numTile_1, int numSubperPE_2, int numPEperTile_2, int numTile_2) {
+	int numRowPerSynapse, numColPerSynapse;
+	numRowPerSynapse = param->numRowPerSynapse;
+	numColPerSynapse = param->numColPerSynapse_2;
+								// only get performance of single layer
+	int l = layerNumber;
+	// get weight matrix file Size
+	int weightMatrixRow = netStructure[l][2]*netStructure[l][3]*netStructure[l][4]*numRowPerSynapse;
+	int weightMatrixCol = netStructure[l][5]*numColPerSynapse;
+
+	// load in whole file 
+	vector<vector<double> > inputVector;
+	inputVector = LoadInInputData(inputfile); 
+	vector<vector<double> > newMemory;
+	newMemory = LoadInWeightData(newweightfile, numRowPerSynapse, numColPerSynapse, param->maxConductance, param->minConductance);
+	vector<vector<double> > oldMemory;
+	oldMemory = LoadInWeightData(oldweightfile, numRowPerSynapse, numColPerSynapse, param->maxConductance, param->minConductance);
+
+	vector<vector<vector<int>>> Matrix_map_list;
+	Matrix_map_list = Matrix_map_list_initial(layerNumber, netStructure, markNM, splitBit);
+
+	/*
+		对于conventional mapping而言， tile应当是足够覆盖所有权重的，无论是数字还是模拟
+		对于novel mapping，需要分类讨论 conv和fc；
+		fc 以subarray为硬件映射单元，一个「」对应一个subarray
+		conv 以pe为基本单元，一个「」对应一个PE
+	*/
+	int numMatrixOneTime_1, numMatrixOneTime_2;
+	int numTilesForCal_1, numTilesForCal_2;
+	int Calculate_Times_1, Calculate_Times_2;
+	if(is_conv) {
+		numMatrixOneTime_1 = numPEperTile_1 * numTile_1;
+		Calculate_Times_1 = ceil( Matrix_map_list[0].size() / (double)(numMatrixOneTime_1) );
+		numTilesForCal_1 = ceil( (double)Matrix_map_list[0].size() / (double)(numPEperTile_1) );
+
+		numMatrixOneTime_2 = numPEperTile_1 * numTile_2;
+		Calculate_Times_2 = ceil( Matrix_map_list[1].size() / (double)(numMatrixOneTime_2) );
+		numTilesForCal_2 = ceil( (double)Matrix_map_list[1].size() / (double)(numPEperTile_2) );
+	} else {
+		numMatrixOneTime_1 = numSubperPE_1 * numPEperTile_1 * numTile_1;
+		Calculate_Times_1 = ceil( Matrix_map_list[0].size() / (double)(numMatrixOneTime_1) );
+		numMatrixOneTime_2 = numSubperPE_2 * numPEperTile_2 * numTile_2;
+		Calculate_Times_2 = ceil( Matrix_map_list[1].size() / (double)(numMatrixOneTime_2) );
+	}
+
+	return {numTilesForCal_1, numTilesForCal_2};
+}
+
+vector<vector<double>> CreateInputVector(bool isAnalog, int numInVector) {
+	vector<vector<double>> input;
+	int numRow;
+	if (isAnalog) {
+		numRow = param->numRowSubArray;
+	} else {
+		numRow = param->numRowSubArray_2;
+	}
+	for (int k=0; k<numRow; k++) {
+		vector<double> vec;
+		for (int i = 0; i < numInVector; i++) {
+			int rand_bit = rand() % 2;
+			// 随机填入0或1
+			vec.push_back(rand_bit);
+		}
+		input.push_back(vec);
+	}
+	return input;
+}
+
+vector<vector<double>> CreateSubArrayMemory(bool isAnalog) {
+	vector<vector<double>> subArrayMemory;
+	int numRow, numCol;
+	if (isAnalog) {
+		numRow = param->numRowSubArray;
+		numCol = param->numColSubArray;
+	} else {
+		numRow = param->numRowSubArray_2;
+		numCol = param->numColSubArray_2;
+	}
+	double maxConductance = param->maxConductance;
+	double minConductance = param->minConductance;
+	int cellrange = pow(2, param->cellBit);
+	int cellvalue;
+	for (int i = 0; i < numRow; ++i) {
+		vector<double> row;
+		for (int j = 0; j < numCol; ++j) {
+			// cellvalue 在cellrange之内随机生成
+			cellvalue = rand() % cellrange;
+			double conductance = cellvalue/(cellrange-1) * (maxConductance-minConductance) + minConductance;
+			row.push_back(conductance);
+		}
+		subArrayMemory.push_back(row);
+	}
+	return subArrayMemory;
+}
+
+vector<vector<double>> CreatePEMemory(bool isAnalog) {
+	vector<vector<double>> peMemory;
+	int numRow, numCol;
+	if (isAnalog) {
+		numRow = param->numRowSubArray * 3;
+	} else {
+		numRow = param->numRowSubArray_2 * 3;
+	}
+	double maxConductance = param->maxConductance;
+	double minConductance = param->minConductance;
+	int cellrange = pow(2, param->cellBit);
+	int cellvalue;
+	for (int i = 0; i < numRow; ++i) {
+		vector<double> row;
+		for (int j = 0; j < numCol; ++j) {
+			// cellvalue 在cellrange之内随机生成
+			cellvalue = rand() % cellrange;
+			double conductance = cellvalue/(cellrange-1) * (maxConductance-minConductance) + minConductance;
+			row.push_back(conductance);
+		}
+		peMemory.push_back(row);
+	}
+	return peMemory;
+}
+
+double HybridChipCalculatePerformance(InputParameter& inputParameter, Technology& tech, MemCell& cell, MemCell& cell_2, int layerNumber, bool followedByMaxPool, 
+							const vector<vector<double> > &netStructure, const vector<int> &markNM, const vector<vector<double> > &numTileEachLayer, const vector<vector<double> > &utilizationEachLayer, 
+							const vector<vector<double> > &speedUpEachLayer, const vector<vector<double> > &tileLocaEachLayer, double numPENM, double desiredPESizeNM, double desiredTileSizeCM, 
+							double desiredPESizeCM, double CMTileheight, double CMTilewidth, double NMTileheight, double NMTilewidth, int numArrayWriteParallel,
+							double *readLatency, double *readDynamicEnergy, double *leakage, double *readLatencyAG, double *readDynamicEnergyAG, double *readLatencyWG, double *readDynamicEnergyWG, 
+							double *writeLatencyWU, double *writeDynamicEnergyWU, double *bufferLatency, double *bufferDynamicEnergy, double *icLatency, double *icDynamicEnergy, double *coreLatencyADC, 
+							double *coreLatencyAccum, double *coreLatencyOther, double *coreEnergyADC, double *coreEnergyAccum, double *coreEnergyOther, double *dramLatency, double *dramDynamicEnergy,
+							double *readLatencyPeakFW, double *readDynamicEnergyPeakFW, double *readLatencyPeakAG, double *readDynamicEnergyPeakAG, double *readLatencyPeakWG, double *readDynamicEnergyPeakWG,
+							double *writeLatencyPeakWU, double *writeDynamicEnergyPeakWU,
+							const vector<int> &splitBit) {
+	int numRowPerSynapse, numColPerSynapse;
+	numRowPerSynapse = param->numRowPerSynapse;
+	numColPerSynapse = param->numColPerSynapse_2;
+								// only get performance of single layer
+	int l = layerNumber;
+	// get weight matrix file Size
+	int weightMatrixRow = netStructure[l][2]*netStructure[l][3]*netStructure[l][4]*numRowPerSynapse;
+	int weightMatrixCol = netStructure[l][5]*numColPerSynapse;
+
+	// load in whole file 
+	// vector<vector<double> > inputVector;
+	// inputVector = LoadInInputData(inputfile); 
+	// vector<vector<double> > newMemory;
+	// newMemory = LoadInWeightData(newweightfile, numRowPerSynapse, numColPerSynapse, param->maxConductance, param->minConductance);
+	// vector<vector<double> > oldMemory;
+	// oldMemory = LoadInWeightData(oldweightfile, numRowPerSynapse, numColPerSynapse, param->maxConductance, param->minConductance);
+
+	// vector<vector<double> > Analog_oldMemory;
+	// vector<vector<double> > Digital_oldMemory;
+	// vector<vector<vector<double>>> hybridWeightData = LoadInHybridWeightData(oldweightfile, numRowPerSynapse, numColPerSynapse, param->maxConductance, param->minConductance, splitBit[l]);
+	// Analog_oldMemory = hybridWeightData[0];
+	// Digital_oldMemory = hybridWeightData[1];
+
+	*readLatency = 0;
+	*readDynamicEnergy = 0;
+	*readLatencyAG = 0;
+	*readDynamicEnergyAG = 0;
+	*readLatencyPeakFW = 0;
+	*readDynamicEnergyPeakFW = 0;
+	*readLatencyPeakAG = 0;
+	*readDynamicEnergyPeakAG = 0;
+	
+	*bufferLatency = 0;
+	*bufferDynamicEnergy = 0;
+	*icLatency = 0;
+	*icDynamicEnergy = 0;
+	*coreEnergyADC = 0;
+	*coreEnergyAccum = 0;
+	*coreEnergyOther = 0;
+	*coreLatencyADC = 0;
+	*coreLatencyAccum = 0;
+	*coreLatencyOther = 0;
+	
+	*readLatencyWG = 0;
+	*readDynamicEnergyWG = 0;
+	*writeLatencyWU = 0;
+	*writeDynamicEnergyWU = 0;
+
+	*readLatencyPeakWG = 0;
+	*readDynamicEnergyPeakWG = 0;
+	*writeLatencyPeakWU = 0;
+	*writeDynamicEnergyPeakWU = 0;
+	
+	*leakage = 0;
+	*dramLatency = 0;
+	*dramDynamicEnergy = 0;
+
+	double tileLeakage = 0;
+	double tileReadLatency,tileReadDynamicEnergy,tileReadLatencyAG,tileReadDynamicEnergyAG,tileWriteLatencyWU,tileWriteDynamicEnergyWU;
+	double tileReadLatencyPeakFW,tileReadDynamicEnergyPeakFW,tileReadLatencyPeakAG,tileReadDynamicEnergyPeakAG;
+	double tileWriteLatencyPeakWU,tileWriteDynamicEnergyPeakWU,tilebufferLatency,tilebufferDynamicEnergy,tileicLatency,tileicDynamicEnergy;
+	double tileLatencyADC,tileLatencyAccum,tileLatencyOther,tileEnergyADC,tileEnergyAccum,tileEnergyOther;
+
+	
+
+	int numInVector = (netStructure[l][0]-netStructure[l][3]+1)/netStructure[l][7]*(netStructure[l][1]-netStructure[l][4]+1)/netStructure[l][7]; // 【7】represent the poolsize
+	int totalNumTile = 0;
+	for (int i=0; i<netStructure.size(); i++) {
+		totalNumTile += numTileEachLayer[0][i] * numTileEachLayer[1][i];
+	}
+
+	//TODO：
+	int numTiles_1, numTiles_2;
+	int numPEperTile_1,numSubArrayperPE_1;
+	int numPEperTile_2, numSubArrayperPE_2;
+
+	numTiles_1 = param->numTiles_1;
+	numPEperTile_1 = param->numPEperTile_1;
+	numSubArrayperPE_1 = param->numSubArrayperPE_1;
+	numTiles_2 = param->numTiles_2;
+	numPEperTile_2 = param->numPEperTile_2;
+	numSubArrayperPE_2 = param->numSubArrayperPE_2;
+	
+		// 分别计算analog/digital部分，最后再整合
+		// Analog part
+		int numCell_1 = ceil((splitBit[l]+1)/param->cellBit);
+		int numSubarrayNeeded_1;
+		if(markNM[l] == 0){
+			numSubarrayNeeded_1 = ceil((double)(netStructure[l][5]* numCell_1) / (double)(param->numColSubArray));
+		}
+		else {
+			numSubarrayNeeded_1 = (ceil((double)(netStructure[l][5]* numCell_1) / (double)(param->numColSubArray)))*ceil((double)(netStructure[l][2]*netStructure[l][3]*netStructure[l][4]) / (double)(param->numRowSubArray));
+		}
+		// 计算次数
+		int TimesCalc_1 = ceil((double)numSubarrayNeeded_1 / (double)(numSubArrayperPE_1*numPEperTile_1*numTiles_1));
+		// 假设每次计算Tile满载运行
+		int numTileUsed_1;
+		int numPEUsed_1;
+		if(TimesCalc_1 <= 1) {
+			numTileUsed_1 = ceil((double)numSubarrayNeeded_1 / (double)(numSubArrayperPE_1*numPEperTile_1));
+			numPEUsed_1 = ceil((double)numSubarrayNeeded_1 / (double)(numSubArrayperPE_1));
+		}
+		else {
+			numTileUsed_1 = numTiles_1;
+			numPEUsed_1 = numPEperTile_1 * numTiles_1;
+		}
+		double analogTileReadLatency = 0;
+		
+			// 根据tile的大小，拆分weight matrix
+			// vector<vector<double> > tileMemoryOld_1;
+			// tileMemoryOld_1 = Split_CopyArray_tile(Analog_oldMemory, numRowMatrix_1, numColMatrix_1, 1, splitBit[l]);
+			// vector<vector<double> > tileMemory_1;
+			// tileMemory_1 = Split_CopyArray_tile(Analog_oldMemory, numRowMatrix_1, numColMatrix_1, 1, splitBit[l]);
+			
+			// 根据tile大小，直接传递所需的单位matrix的数量
+			tileReadLatency = 0;
+			tileReadDynamicEnergy = 0;
+			if(TimesCalc_1 >= 1) {
+				HybridTileCalculatePerformance(markNM[l], layerNumber, numPEUsed_1, desiredPESizeCM, speedUpEachLayer[0][l], speedUpEachLayer[1][l],
+					numInVector*param->numBitInput, tech, cell,cell_2, &tileReadLatency, &tileReadDynamicEnergy, &tileLeakage,
+					&tileReadLatencyAG, &tileReadDynamicEnergyAG, &tileWriteLatencyWU, &tileWriteDynamicEnergyWU,
+					&tilebufferLatency, &tilebufferDynamicEnergy, &tileicLatency, &tileicDynamicEnergy, 
+					&tileLatencyADC, &tileLatencyAccum, &tileLatencyOther, &tileEnergyADC, &tileEnergyAccum, &tileEnergyOther, 
+					&tileReadLatencyPeakFW, &tileReadDynamicEnergyPeakFW, &tileReadLatencyPeakAG, &tileReadDynamicEnergyPeakAG,
+					&tileWriteLatencyPeakWU, &tileWriteDynamicEnergyPeakWU,
+					true, numCell_1);
+			}
+			
+			analogTileReadLatency = MAX(tileReadLatency, analogTileReadLatency);
+			
+			*readDynamicEnergy += tileReadDynamicEnergy*numTileUsed_1*TimesCalc_1;
+			*readLatencyPeakFW = MAX(tileReadLatencyPeakFW, (*readLatencyPeakFW));
+			*readDynamicEnergyPeakFW += tileReadDynamicEnergyPeakFW;
+			
+			*bufferLatency = MAX(tilebufferLatency, (*bufferLatency));
+			*bufferDynamicEnergy += tilebufferDynamicEnergy;
+			*icLatency = MAX(tileicLatency, (*icLatency));
+			*icDynamicEnergy += tileicDynamicEnergy;
+			
+			*coreLatencyAccum = MAX(tileLatencyAccum, (*coreLatencyAccum));
+			*coreLatencyOther = MAX(tileLatencyOther, (*coreLatencyOther));
+			
+			*coreEnergyADC += tileEnergyADC;
+			*coreEnergyAccum += tileEnergyAccum;
+			*coreEnergyOther += tileEnergyOther;
+		
+		//*readLatency += analogTileReadLatency*TimesCalc_1;
+		*readLatency = MAX(analogTileReadLatency*TimesCalc_1, (*readLatency));
+		
+		// Digital part
+		int remainingBits = param->synapseBit - (splitBit[l] + 1);
+		if(remainingBits < 0) {
+			printf("synapseBit: %d, splitBit: %d, remainingBits: %d\n", param->synapseBit, splitBit[l], remainingBits);
+			printf("remainingBits < 0, layer: %d\n", l);
+			exit(-1);
+		}
+		int numCell_2 = ceil((remainingBits)/param->cellBit_2);
+		int numSubarrayNeeded_2;
+		if(markNM[l] == 0){
+			numSubarrayNeeded_2 = ceil((double)(netStructure[l][5]* numCell_2) / (double)(param->numColSubArray_2));
+		}
+		else {
+			numSubarrayNeeded_2 = (ceil((double)(netStructure[l][5]* numCell_2) / (double)(param->numColSubArray_2)))*ceil((double)(netStructure[l][2]*netStructure[l][3]*netStructure[l][4]) / (double)(param->numRowSubArray_2));
+		}
+		// 计算次数
+		int TimesCalc_2 = ceil((double)numSubarrayNeeded_2 / (double)(numSubArrayperPE_2*numPEperTile_2*numTiles_2));
+		// 假设每次计算Tile满载运行
+		int numTileUsed_2;
+		int numPEUsed_2;
+		if(TimesCalc_2 <= 1) {
+			numTileUsed_2 = ceil((double)numSubarrayNeeded_2 / (double)(numSubArrayperPE_2*numPEperTile_2));
+			numPEUsed_2 = ceil((double)numSubarrayNeeded_2 / (double)(numSubArrayperPE_2));
+		}
+		else {
+			numTileUsed_2 = numTiles_2;
+			numPEUsed_2 = numPEperTile_2 * numTiles_2;
+		}
+		double digitalTileReadLatency = 0;
+		
+		// 根据tile大小，直接传递所需的单位matrix的数量
+		tileReadLatency = 0;
+		tileReadDynamicEnergy = 0;
+		if(TimesCalc_2 >= 1) {
+		HybridTileCalculatePerformance( markNM[l], layerNumber, numPEUsed_2, desiredPESizeCM, speedUpEachLayer[0][l], speedUpEachLayer[1][l],
+								numInVector*param->numBitInput, tech, cell,cell_2, &tileReadLatency, &tileReadDynamicEnergy, &tileLeakage,
+								&tileReadLatencyAG, &tileReadDynamicEnergyAG, &tileWriteLatencyWU, &tileWriteDynamicEnergyWU,
+								&tilebufferLatency, &tilebufferDynamicEnergy, &tileicLatency, &tileicDynamicEnergy, 
+								&tileLatencyADC, &tileLatencyAccum, &tileLatencyOther, &tileEnergyADC, &tileEnergyAccum, &tileEnergyOther, 
+								&tileReadLatencyPeakFW, &tileReadDynamicEnergyPeakFW, &tileReadLatencyPeakAG, &tileReadDynamicEnergyPeakAG,
+								&tileWriteLatencyPeakWU, &tileWriteDynamicEnergyPeakWU,
+								false, numCell_2);
+		}
+		
+		digitalTileReadLatency = MAX(tileReadLatency, digitalTileReadLatency);
+		*readDynamicEnergy += tileReadDynamicEnergy*numTileUsed_2*TimesCalc_2;
+		*readLatencyPeakFW = MAX(tileReadLatencyPeakFW, (*readLatencyPeakFW));
+		*readDynamicEnergyPeakFW += tileReadDynamicEnergyPeakFW;
+		
+		*bufferLatency = MAX(tilebufferLatency, (*bufferLatency));
+		*bufferDynamicEnergy += tilebufferDynamicEnergy;
+		*icLatency = MAX(tileicLatency, (*icLatency));
+		*icDynamicEnergy += tileicDynamicEnergy;
+		
+		*coreLatencyAccum = MAX(tileLatencyAccum, (*coreLatencyAccum));
+		*coreLatencyOther = MAX(tileLatencyOther, (*coreLatencyOther));
+		
+		*coreEnergyADC += tileEnergyADC;
+		*coreEnergyAccum += tileEnergyAccum;
+		*coreEnergyOther += tileEnergyOther;
+	
+	
+	//*readLatency += digitalTileReadLatency*TimesCalc_2;
+	*readLatency = MAX(digitalTileReadLatency*TimesCalc_2, (*readLatency));
+
+	Tileaccumulation_1->CalculateLatency(numInVector, numTiles_1, 0);
+	Tileaccumulation_1->CalculatePower(numInVector, numTiles_1);
+	Tileaccumulation_2->CalculateLatency(numInVector, numTiles_2, 0);
+	Tileaccumulation_2->CalculatePower(numInVector, numTiles_2);
+	*coreLatencyAccum += MAX(Tileaccumulation_1->readLatency, Tileaccumulation_2->readLatency);
+	*coreEnergyAccum += Tileaccumulation_1->readDynamicEnergy * param->numColSubArray + Tileaccumulation_2->readDynamicEnergy * param->numColSubArray_2;
+
+	int dataLoadIn = (netStructure[0][0])*(netStructure[0][1])*param->numBitInput; 
+	// ONLY LOAD IMAGE
+	dRAM->CalculateLatency(dataLoadIn);
+	dRAM->CalculatePower(dataLoadIn);
+	*readLatency += (dRAM->readLatency)*((param->trainingEstimation)==true? 0:1);
+	*readDynamicEnergy += (dRAM->readDynamicEnergy)*((param->trainingEstimation)==true? 0:1);
+	*dramLatency = (dRAM->readLatency*((param->trainingEstimation)==true? 0:1)); 
+	*dramDynamicEnergy = (dRAM->readDynamicEnergy*((param->trainingEstimation)==true? 0:1));
+
+	*leakage = tileLeakage;
+	return 0;
+}
+
+
+// calculate the performance of one layer; And consider the input vector and weight 
 double ChipCalculatePerformance(InputParameter& inputParameter, Technology& tech, MemCell& cell, int layerNumber, const string &newweightfile, const string &oldweightfile, const string &inputfile, bool followedByMaxPool, 
 							const vector<vector<double> > &netStructure, const vector<int> &markNM, const vector<vector<double> > &numTileEachLayer, const vector<vector<double> > &utilizationEachLayer, 
 							const vector<vector<double> > &speedUpEachLayer, const vector<vector<double> > &tileLocaEachLayer, double numPENM, double desiredPESizeNM, double desiredTileSizeCM, 
@@ -648,7 +1176,9 @@ double ChipCalculatePerformance(InputParameter& inputParameter, Technology& tech
 	int weightMatrixRow = netStructure[l][2]*netStructure[l][3]*netStructure[l][4]*numRowPerSynapse;
 	int weightMatrixCol = netStructure[l][5]*numColPerSynapse;
 	
+	//TODO
 	// load in whole file 
+	// map the weight and activation to multi-cell
 	vector<vector<double> > inputVector;
 	inputVector = LoadInInputData(inputfile); 
 	vector<vector<double> > newMemory;
@@ -696,7 +1226,7 @@ double ChipCalculatePerformance(InputParameter& inputParameter, Technology& tech
 	double tileWriteLatencyPeakWU,tileWriteDynamicEnergyPeakWU,tilebufferLatency,tilebufferDynamicEnergy,tileicLatency,tileicDynamicEnergy;
 	double tileLatencyADC,tileLatencyAccum,tileLatencyOther,tileEnergyADC,tileEnergyAccum,tileEnergyOther;
 	
-	int numInVector = (netStructure[l][0]-netStructure[l][3]+1)/netStructure[l][7]*(netStructure[l][1]-netStructure[l][4]+1)/netStructure[l][7];
+	int numInVector = (netStructure[l][0]-netStructure[l][3]+1)/netStructure[l][7]*(netStructure[l][1]-netStructure[l][4]+1)/netStructure[l][7]; // 【7】represent the poolsize
 	int totalNumTile = 0;
 	for (int i=0; i<netStructure.size(); i++) {
 		totalNumTile += numTileEachLayer[0][i] * numTileEachLayer[1][i];
@@ -1379,7 +1909,104 @@ vector<vector<double> > OverallEachLayer(bool utilization, bool speedUp, const v
 	numTileEachLayer.clear();
 }
 
+vector<vector<vector<double> >> LoadInHybridWeightData(const string &weightfile, int numRowPerSynapse, int numColPerSynapse, double maxConductance, double minConductance, int splitBit) {
+	
+	ifstream fileone(weightfile.c_str());                           
+		string lineone;
+		string valone;
+		
+		int ROW = 0;
+		int COL = 0;
+		
+		if (!fileone.good()) {                                       
+			cerr << "Error: the fileone cannot be opened!" << endl;
+			exit(1);
+		}else{
+			while (getline(fileone, lineone, '\n')) {                   
+				ROW++;                                             
+			}
+			fileone.clear();
+			fileone.seekg(0, ios::beg);                               
+			if (getline(fileone, lineone, '\n')) {                      
+				istringstream iss (lineone);                         
+				while (getline(iss, valone, ',')) {                   
+					COL++;
+				}
+			}	
+		}
+		fileone.clear();
+		fileone.seekg(0, ios::beg);                   
+		
+		double NormalizedMin = 0;
+		double NormalizedMax = pow(2, param->synapseBit);
+		
+		double RealMax = param->algoWeightMax;
+		double RealMin = param->algoWeightMin;
+		
+		vector<vector<double> > weight;   
+		vector<vector<double> > analogweight;
+		vector<vector<double> > digitalweight;         
+		// load the data into a weight matrix ...
+		for (int row=0; row<ROW; row++) {	
+			vector<double> weightrow;
+			vector<double> weightrowb;
 
+			vector<double> analogweightrow;
+			vector<double> digitalweightrow;
+			getline(fileone, lineone, '\n');              
+			istringstream iss;
+			iss.str(lineone);
+			for (int col=0; col<COL; col++) {       
+				while(getline(iss, valone, ',')){	
+					istringstream fs;
+					fs.str(valone);
+					double f=0;
+					fs >> f;	
+					
+					//normalize weight to integer
+					double newdata = ((NormalizedMax-NormalizedMin)/(RealMax-RealMin)*(f-RealMax)+NormalizedMax);
+					if (newdata >= 0) {
+						newdata += 0.5;
+					}else {
+						newdata -= 0.5;
+					}
+					// map and expend the weight in memory array
+					int cellrange = pow(2, param->cellBit);
+					vector<int> synapsevector(numColPerSynapse);       
+					int value = newdata; 
+					
+					int remainder;   
+					for (int z=0; z<numColPerSynapse; z++) {   
+						remainder = (int) value%cellrange;
+						value = (int) value/cellrange;
+						//synapsevector.insert(synapsevector.begin(), value/*remainder*/);
+						synapsevector.insert(synapsevector.begin(), remainder);
+					}
+					for (int u=0; u<numColPerSynapse; u++) {
+						if(u<=splitBit){
+							int cellvalue = synapsevector[u];
+							double conductance = cellvalue/(cellrange-1) * (maxConductance-minConductance) + minConductance;
+							analogweightrow.push_back(conductance);
+						} else {
+							int cellvalue = synapsevector[u];
+							double conductance = cellvalue/(cellrange-1) * (maxConductance-minConductance) + minConductance;
+							digitalweightrow.push_back(conductance);
+						}
+					}
+				}
+			}
+			analogweight.push_back(analogweightrow);
+			analogweightrow.clear();
+			digitalweight.push_back(digitalweightrow);
+			digitalweightrow.clear();
+			
+		}
+		fileone.close();
+		
+		return {analogweight, digitalweight};
+		analogweight.clear();
+		digitalweight.clear();
+}
 
 vector<vector<double> > LoadInWeightData(const string &weightfile, int numRowPerSynapse, int numColPerSynapse, double maxConductance, double minConductance) {
 	
@@ -1509,7 +2136,81 @@ vector<vector<double> > CopyArray(const vector<vector<double> > &orginal, int po
 	copy.clear();
 } 
 
+vector<vector<double> > Split_CopyArray(const vector<vector<double> > &orginal, int numRow, int numCol, int bit_idx, int kernelgroup_idx,
+									   int numCell) {
+	vector<vector<double> > copy;
+	for (int i=0; i<numRow; i++) {
+		vector<double> copyRow;
+		for (int j=0; j<numCol/numCell; j++) {
+			copyRow.push_back(orginal[i][param->numColSubArray*numCell*kernelgroup_idx + j*numCell + bit_idx]);// bit_idx from 0 to numCell-1
+		}
+		copy.push_back(copyRow);
+		copyRow.clear();
+	}
+	
+	return copy;
+	copy.clear();
+}
 
+vector<vector<double> > Split_CopyArray(const vector<vector<double> > &orginal, int numRow, int numCol, int BitThres) {
+	vector<vector<double> > copy_1;
+	vector<vector<double> > copy_2;
+	for (int i=0; i<numRow; i++) {
+		vector<double> copyRow_1;
+		vector<double> copyRow_2;
+		for (int j=0; j<numCol/(param->synapseBit); j++) {
+			for(int k=0; k< param->synapseBit; k++) {
+				if(k < BitThres) {
+					copyRow_1.push_back(orginal[i][j*param->synapseBit + k]); //TODO: how to integered multi-bit to fit into the multi-bit cell
+				}
+				else {
+					copyRow_2.push_back(orginal[i][j*param->synapseBit + k]);
+				}
+			}
+		}
+		copy_1.push_back(copyRow_1);
+		copy_2.push_back(copyRow_2);
+		copyRow_1.clear();
+		copyRow_2.clear();
+	}
+	return copy_1,copy_2;
+	copy_1.clear();
+	copy_2.clear();
+}
+
+
+//TODO: extract weight for tile-level
+/*
+以subarray为单位进行tile-level的weight提取，输入参数有
+- orginal：原始的weight矩阵
+- numRow： 提取subarray的尺寸
+- offset： 从那个subarray开始提取
+- numSubarray: 一共提取多少个subarray
+*/
+vector<vector<vector<double>>> Split_CopyArray_tile(const vector<vector<double> > &orginal, int subsize, int offset, int numSubarray,
+									   int numCell) {
+	// 创建以subarray为单位的三维矩阵
+	int numRow = subsize;
+	int numCol = subsize;
+	int subarray_index;
+	vector<vector<vector<double>>> tile_weight;
+	for(int n=0;n<numSubarray;n++){
+		vector<vector<double> > copy;
+		subarray_index = offset + n; // 当前提取的subarray索引
+		for (int i=0; i<numRow; i++) {
+			vector<double> copyRow;
+			for (int j=0; j<numCol; j++) {
+				copyRow.push_back(orginal[i][subarray_index*param->numColSubArray+j]);// bit_idx from 0 to numCell-1
+			}
+			copy.push_back(copyRow);
+			copyRow.clear();
+		}
+		tile_weight.push_back(copy);
+		copy.clear();
+	}
+	return tile_weight;
+	tile_weight.clear();
+}
 
 vector<vector<double> > ReshapeArray(const vector<vector<double> > &orginal, int positionRow, int positionCol, int numRow, int numCol, int numPE, int weightMatrixRow) {
 	
@@ -1628,7 +2329,22 @@ vector<vector<double> > CopyInput(const vector<vector<double> > &orginal, int po
 	
 } 
 
+vector<vector<double> > Split_CopyInput(const vector<vector<double> > &orginal, int numInputVector, int numRow
+									    ) {
+	vector<vector<double> > copy;
+	for (int i=0; i<numRow; i++) {
+		vector<double> copyRow;
+		for (int j=0; j<numInputVector; j++) {
+			copyRow.push_back(orginal[i][j]);// bit_idx from 0 to numCell-1
+		}
+		copy.push_back(copyRow);
+		copyRow.clear();
+	}
+	
+	return copy;
+	copy.clear();
 
+}
 
 vector<vector<double> > ReshapeInput(const vector<vector<double> > &orginal, int positionRow, int numInputVector, int numRow, int numPE, int weightMatrixRow) {
 	
