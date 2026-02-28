@@ -639,6 +639,11 @@ void HybridChipCalculateArea(InputParameter& inputParameter, Technology& tech, M
 	
 	}
 
+// 进行硬件资源的规划
+void HybridChipresourcesPlan(InputParameter& inputParameter, Technology& tech, MemCell& cell, MemCell& cell_2, const vector<vector<double> > &netStructure, const vector<int > &markNM){
+	
+};
+
 vector<double> ChipCalculateArea(InputParameter& inputParameter, Technology& tech, MemCell& cell, double desiredNumTileNM, double numPENM, double desiredPESizeNM, double desiredNumTileCM, double desiredTileSizeCM, 
 						double desiredPESizeCM, int numTileRow, double *height, double *width, double *CMTileheight, double *CMTilewidth, double *NMTileheight, double *NMTilewidth) {
 	
@@ -908,6 +913,7 @@ vector<vector<double>> CreatePEMemory(bool isAnalog) {
 	}
 	return peMemory;
 }
+
 
 double HybridChipCalculatePerformance(InputParameter& inputParameter, Technology& tech, MemCell& cell, MemCell& cell_2, int layerNumber, bool followedByMaxPool, 
 							const vector<vector<double> > &netStructure, const vector<int> &markNM, const vector<vector<double> > &numTileEachLayer, const vector<vector<double> > &utilizationEachLayer, 

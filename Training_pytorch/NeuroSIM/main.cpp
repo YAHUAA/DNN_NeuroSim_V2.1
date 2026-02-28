@@ -228,51 +228,12 @@ int main(int argc, char * argv[]) {
 	
 	
 	cout << "-------------------------------------- Hardware Performance --------------------------------------" <<  endl;
-	
-	
 
 	ofstream layerfile;
 	string layerfile_name = "/home/zjh/Project/MY_Project/DNN_NeuroSim_V2.1/Training_pytorch/NeuroSIM/result_log/resnet50_layer_result.txt";
 	
 	//DEBUG: 读取每层的数模划分阈值
 	vector<vector<int>> splitBit;
-
-	// Parse splitBit from command line arguments if provided
-	// if (argc > 1) {
-	// 	// Expecting argv[1] to be a string like "[1,1,1,1,1,1,1,1]"
-	// 	string splitBitStr = argv[1];
-		
-	// 	// Remove brackets and whitespace
-	// 	splitBitStr.erase(remove(splitBitStr.begin(), splitBitStr.end(), '['), splitBitStr.end());
-	// 	splitBitStr.erase(remove(splitBitStr.begin(), splitBitStr.end(), ']'), splitBitStr.end());
-	// 	splitBitStr.erase(remove(splitBitStr.begin(), splitBitStr.end(), ' '), splitBitStr.end());
-		
-	// 	stringstream ss(splitBitStr);
-	// 	string token;
-		
-	// 	while (getline(ss, token, ',')) {
-	// 		if (!token.empty()) {
-	// 			splitBit.push_back(stoi(token));
-	// 		}
-	// 	}
-		
-	// 	if (splitBit.size() == netStructure.size()) {
-	// 		cout << "Loaded splitBit from command line: [";
-	// 		for (size_t i = 0; i < splitBit.size(); ++i) {
-	// 			if (i > 0) cout << ",";
-	// 			cout << splitBit[i];
-	// 		}
-	// 		cout << "]" << endl;
-	// 	} else {
-	// 		cerr << "Warning: splitBit size (" << splitBit.size() 
-	// 			 << ") doesn't match network layers (" << netStructure.size() << ")" << endl;
-	// 		splitBit.assign(netStructure.size(), 4);
-	// 	}
-	// } else {
-	// 	// No command line argument provided, use default
-	// 	cout << "No splitBit provided, using default configuration" << endl;
-	// 	splitBit.assign(netStructure.size(), 4);
-	// }
 	
 	//splitBit = parseLayerSplit("/home/zjh/Project/MY_Project/DNN_NeuroSim_V2.1/Training_pytorch/NeuroSIM/resnet50_layer_split_bit.txt", netStructure.size());
 	splitBit = parseLayerSplit("/home/zjh/Project/MY_Project/DNN_NeuroSim_V2.1/Training_pytorch/NeuroSIM/result_log/da_thresholds.txt", netStructure.size());
@@ -281,6 +242,9 @@ int main(int argc, char * argv[]) {
 	// cout << "netStructure size: " << netStructure.size() << endl;
 	// cout << "netStructure size: " << netStructure[0].size() << endl;
 
+	//TODO: 更高效地划分资源到每层，支持流水模式
+	HybridChipresourcesPlan(inputParameter, tech, cell, cell_2, netStructure, markNM);
+	
 	HybridChipCalculateArea(inputParameter, tech, cell, cell_2, numPEsperTile_a, numPEsperTile_d);
 	// layer-by-layer process
 	// show the detailed hardware performance for each layer
@@ -504,20 +468,6 @@ int main(int argc, char * argv[]) {
 		cout << "Error: the json file cannot be opened!" << endl;
 	}
 }
-	// // 将chipReadDynamicEnergy，chipReadLatency写入json文件
-	// ofstream chipfile;
-	// string chipfile_name = "/home/zjh/Project/MY_Project/DNN_NeuroSim_V2.1/Training_pytorch/NeuroSIM/result_log/performance.json";
-	// jsonfile.open(jsonfile_name);
-	// if (jsonfile.is_open()) {
-	// 	jsonfile << "{" << endl;
-	// 	jsonfile << "  \"chipReadLatency\": " << chipReadLatency << "," << endl;
-	// 	jsonfile << "  \"chipReadDynamicEnergy\": " << chipReadDynamicEnergy << endl;
-	// 	jsonfile << "}" << endl;
-	// 	jsonfile.close();
-	// } else {
-	// 	cout << "Error: the json file cannot be opened!" << endl;
-	// }
-
 	return 0;
 }
 
